@@ -1,0 +1,294 @@
+import torch
+from torch import Tensor
+from torch.nn import functional as F
+from torch import nn
+
+
+class PositionWiseFeedForward(nn.Module):
+    def __init__(self, d_model: int, inner_dim: int):
+        """
+        Args:
+            d_model: dimensionality of the input and output
+            inner_dim: dimensionality of the inner layer, also called d_ff in the paper
+        """
+        super().__init__()
+        self.fc1 = nn.Linear(d_model, inner_dim)
+        self.fc2 = nn.Linear(inner_dim, d_model)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.fc2(F.relu(self.fc1(x)))
+
+
+class InputEmbedder(nn.Module):
+    def __init__(self, d_model: int, vocab_size: int):
+        super().__init__()
+        self.d_model = d_model
+        self.vocab_size = vocab_size
+        self.embedding = nn.Embedding(num_embeddings=vocab_size, embedding_dim=d_model)
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.embedding(x) * self.d_model**0.5
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, seq_len: int, dropout: float = 0) -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.seq_len = seq_len
+        self.dropout = nn.Dropout(dropout)
+
+        pos_encoding = torch.zeros(seq_len, d_model)  # (seq_len, d_model)
+        pos = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)  # (seq_len, 1)
+        div_term = torch.pow(10000, torch.arange(0, d_model, 2) / d_model)
+
+        pos_encoding[:, 0::2] = torch.sin(pos / div_term)
+        pos_encoding[:, 1::2] = torch.cos(pos / div_term)
+        self.register_buffer("pos_encoding", pos_encoding)
+
+    def forward(self, x: Tensor) -> Tensor:
+        # x is of shape (batch_size, seq_len, d_model)
+        # so we want only to add the positional encoding to the seq_len dimension
+        cropped_pos_encoding = self.pos_encoding[: x.size(1), :]  # (seq_len, d_model)
+        x = x + cropped_pos_encoding
+        return self.dropout(x)
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int):
+        super().__init__()
+        self.num_heads = num_heads
+        self.d_model = d_model
+
+        self.d_k = d_k
+        self.d_v = d_v
+
+        assert d_model % num_heads == 0, "d_model should be divisible by num_heads"
+
+        self.W_q = nn.Linear(d_model, num_heads * d_k, bias=False)
+        self.W_k = nn.Linear(d_model, num_heads * d_k, bias=False)
+        self.W_v = nn.Linear(d_model, num_heads * d_v, bias=False)
+        self.W_o = nn.Linear(num_heads * d_v, d_model, bias=False)
+
+    def forward(self, Q: Tensor, K: Tensor, V: Tensor):
+        """
+        Args:
+            Q: Query matrix with shape (batch_size, len_q, d_model)
+            K: Key matrix with shape (batch_size, len_k, d_model)
+            V: Value matrix with shape (batch_size, len_v, d_model)
+        """
+
+        len_q, len_k, len_v = Q.size(1), K.size(1), V.size(1)
+        assert len_k == len_v, "len_k and len_v must be equal"
+        batch_size = Q.size(0)  # should be equal to K.size(0) and V.size(0)
+
+        # Project query, key and value into d_k * num_heads and d_v * num_heads
+        # We transpose them so the 'inner (right-most) matrices' are of shape
+        # (len_x, d_x), so shape is (batch_size, num_heads, len_x, d_x)
+        Q = (
+            self.W_q(Q)
+            .view(batch_size, len_q, self.num_heads, self.d_k)
+            .transpose(1, 2)
+        )
+        K = (
+            self.W_k(K)
+            .view(batch_size, len_k, self.num_heads, self.d_k)
+            .transpose(1, 2)
+        )
+        V = (
+            self.W_v(V)
+            .view(batch_size, len_v, self.num_heads, self.d_v)
+            .transpose(1, 2)
+        )
+
+        out = self._scaled_dot_product_attention(
+            Q, K, V
+        )  # (n, num_heads, seq_len, d_v)
+
+        # now, we need to multiply by the linear with input size num_heads * d_v
+        out = out.transpose(1, 2)  # (batch_size, len_q, num_heads, d_v)
+
+        assert out.size(2) == self.num_heads
+        assert out.size(3) == self.d_v
+        assert out.size(1) == len_q
+        assert out.size(0) == batch_size
+
+        # dont use view because memory layout is not compatible
+        out = out.reshape(batch_size, len_q, self.num_heads * self.d_v)
+
+        return self.W_o(out)
+
+    def _scaled_dot_product_attention(self, Q: Tensor, K: Tensor, V: Tensor):
+        """
+        This is equivalent to separately computing the attention for each head.
+        Args:
+            Q: Query matrix with shape (batch_size, num_heads, len_q, d_k)
+            K: Key matrix with shape (batch_size, num_heads, len_k, d_k)
+            V: Value matrix with shape (batch_size, num_heads, len_v, d_v)
+        """
+        x = (
+            Q @ K.transpose(-2, -1)
+        ) / self.d_k**0.5  # (batch_size, num_heads, len_q, len_k)
+        # len_q = len_k !!!
+        return F.softmax(x, dim=1) @ V  # (batch_size, num_heads, len_q, d_v)
+
+
+class Encoder(nn.Module):
+    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int):
+        super().__init__()
+        self.multi_head_attention = MultiHeadAttention(
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v
+        )
+        self.position_wise_feed_forward = PositionWiseFeedForward(
+            d_model=d_model, inner_dim=d_ff
+        )
+        self.layer_norm1 = nn.LayerNorm(d_model)
+        self.layer_norm2 = nn.LayerNorm(d_model)
+
+    def forward(self, input: Tensor) -> Tensor:
+        out1 = self.multi_head_attention(input, input, input)
+        out1 += input  # residual connection
+        out1 = self.layer_norm1(out1)
+
+        out2 = self.position_wise_feed_forward(out1)
+        out2 += out1  # residual connection
+        out2 = self.layer_norm2(out1)
+
+        return out2
+
+
+class Decoder(nn.Module):
+    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int):
+        super().__init__()
+        self.masked_multi_head_attention = MultiHeadAttention(
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v
+        )
+        self.multi_head_attention = MultiHeadAttention(
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v
+        )
+
+        self.position_wise_feed_forward = PositionWiseFeedForward(
+            d_model=d_model, inner_dim=d_ff
+        )
+        self.layer_norm1 = nn.LayerNorm(d_model)
+        self.layer_norm2 = nn.LayerNorm(d_model)
+        self.layer_norm3 = nn.LayerNorm(d_model)
+
+    def forward(self, encoder_output: Tensor, input: Tensor):
+        out1 = self.masked_multi_head_attention(input, input, input)
+        out1 += input  # residual connection
+        out1 = self.layer_norm1(out1)
+
+        out2 = self.masked_multi_head_attention(encoder_output, encoder_output, input)
+        out2 += input  # residual connection
+        out2 = self.layer_norm1(out1)
+
+        out3 = self.position_wise_feed_forward(out2)
+        out3 += out2  # residual connection
+        out3 = self.layer_norm2(out2)
+
+        return out3
+
+
+class Transformer(nn.Module):
+    def __init__(
+        self,
+        num_heads: int,
+        d_model: int,
+        d_k: int,
+        d_v: int,
+        d_ff: int,
+        src_vocab_size: int,
+        tgt_vocab_size: int,
+    ):
+        super().__init__()
+        self.encoder = Encoder(
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+        )
+        self.decoder = Decoder(
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+        )
+        self.input_embedder = InputEmbedder(d_model=d_model, vocab_size=src_vocab_size)
+        self.positional_encoder = PositionalEncoding(d_model=d_model, seq_len=1000)
+        self.output_embedder = InputEmbedder(d_model=d_model, vocab_size=tgt_vocab_size)
+        self.positional_decoder = PositionalEncoding(d_model=d_model, seq_len=1000)
+        self.linear = nn.Linear(d_model, tgt_vocab_size)
+
+    def forward(self, src: Tensor, tgt: Tensor) -> Tensor:
+        src = self.input_embedder(src)
+        src = self.positional_encoder(src)
+
+        encoder_output = self.encoder(src)
+
+        tgt = self.output_embedder(tgt)
+        tgt = self.positional_decoder(tgt)
+
+        decoder_output = self.decoder(encoder_output, tgt)
+
+        decoder_output = self.linear(decoder_output)
+
+        output = F.log_softmax(decoder_output, dim=-1)
+
+        return output
+
+
+multi_head_attention = MultiHeadAttention(num_heads=8, d_model=512, d_k=64, d_v=64)
+
+
+q = torch.randn(64, 10, 512)
+k = torch.randn(64, 10, 512)
+v = torch.randn(64, 10, 512)
+
+multi_head_attention(q, k, v)
+
+
+# now with different sequence length
+q = torch.randn(64, 20, 512)
+k = torch.randn(64, 10, 512)
+v = torch.randn(64, 10, 512)
+
+multi_head_attention(q, k, v)
+
+
+encoder = Encoder(num_heads=8, d_model=512, d_k=64, d_v=64, d_ff=2048)
+
+
+x = torch.randn(64, 10, 512)
+
+encoder_output = encoder(x)
+
+print(encoder_output.shape)
+
+decoder = Decoder(num_heads=8, d_model=512, d_k=64, d_v=64, d_ff=2048)
+
+decoder(encoder_output, x)
+
+print(encoder_output.shape)
+
+
+transformer = Transformer(
+    num_heads=8,
+    d_model=512,
+    d_k=64,
+    d_v=64,
+    d_ff=2048,
+    src_vocab_size=1000,
+    tgt_vocab_size=1000,
+)
+
+src = torch.randint(0, 1000, (64, 10))
+tgt = torch.randint(0, 1000, (64, 10))
+
+x = transformer(src, tgt)
+
+print(x.shape)
+
+x.sum().backward()
+
+
+# loop to generate a sequence
+input = torch.randint(0, 1000, (1, 1))
+
+for i in range(10):
+    output = transformer(input, input)
+    output = output.argmax(dim=-1)  # (1, 1)
+    input = torch.cat([input, output[:, -1:]], dim=-1)
