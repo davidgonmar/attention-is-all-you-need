@@ -54,8 +54,9 @@ class PositionalEncoding(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, mask: bool = False):
-        
+    def __init__(
+        self, num_heads: int, d_model: int, d_k: int, d_v: int, mask: bool = False
+    ):
         super().__init__()
         self.num_heads = num_heads
         self.d_model = d_model
@@ -80,7 +81,9 @@ class MultiHeadAttention(nn.Module):
         """
 
         len_q, len_k, len_v = Q.size(1), K.size(1), V.size(1)
-        assert len_k == len_v, "len_k and len_v must be equal"
+        assert len_k == len_v, "len_k and len_v must be equal, got {} and {}".format(
+            len_k, len_v
+        )
         batch_size = Q.size(0)  # should be equal to K.size(0) and V.size(0)
 
         # Project query, key and value into d_k * num_heads and d_v * num_heads
@@ -90,17 +93,17 @@ class MultiHeadAttention(nn.Module):
             self.W_q(Q)
             .view(batch_size, len_q, self.num_heads, self.d_k)
             .transpose(1, 2)
-        ) # shape (batch_size, num_heads, len_q, d_k)
+        )  # shape (batch_size, num_heads, len_q, d_k)
         K = (
             self.W_k(K)
             .view(batch_size, len_k, self.num_heads, self.d_k)
             .transpose(1, 2)
-        ) # shape (batch_size, num_heads, len_k, d_k)
+        )  # shape (batch_size, num_heads, len_k, d_k)
         V = (
             self.W_v(V)
             .view(batch_size, len_v, self.num_heads, self.d_v)
             .transpose(1, 2)
-        ) # shape (batch_size, num_heads, len_v, d_v)
+        )  # shape (batch_size, num_heads, len_v, d_v)
 
         out = self._scaled_dot_product_attention(
             Q, K, V
@@ -113,7 +116,7 @@ class MultiHeadAttention(nn.Module):
         assert out.size(3) == self.d_v
         assert out.size(1) == len_q
         assert out.size(0) == batch_size
-        
+
         # We then merge the heads together to get (batch_size, len_q, num_heads * d_v)
         # In the paper, num_heads * d_v = d_model
         # Dont use view because memory layout is not compatible
@@ -130,16 +133,23 @@ class MultiHeadAttention(nn.Module):
         """
         x = (
             Q @ K.transpose(-2, -1)
-        ) / self.d_k ** 0.5 # (batch_size, num_heads, len_q, len_k)
+        ) / self.d_k**0.5  # (batch_size, num_heads, len_q, len_k)
         # len_q = len_k !!!
+
         if self.mask:
+            # print("before masking: ", x)
             # Apply masking, will be broadcasted to shape (batch_size, num_heads, len_q, len_k)
             # Basically, create a matrix with 1s below and in the diagonal, 0s above
             # Then, mask where mask == 0 with -inf
             # So basically we set the values above the diagonal to -inf
             # When softmax is applied, these values will become 0
-            mask = torch.tril(torch.ones(x.size(-2), x.size(-1))).view(1, 1, x.size(-2), x.size(-1))
-            x = x.masked_fill(mask == 0, float("-inf"))
+            mask = (
+                torch.tril(torch.ones(x.size(-2), x.size(-1)))
+                .view(1, 1, x.size(-2), x.size(-1))
+                .to(x.device)
+            )
+            x = x.masked_fill(mask == 0, -1e9)
+        # print("after masking: ", x)
         return F.softmax(x, dim=1) @ V  # (batch_size, num_heads, len_q, d_v)
 
 
@@ -166,8 +176,17 @@ class EncoderLayer(nn.Module):
 
         return out2
 
+
 class Encoder(nn.Module):
-    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int, num_layers: int = 6):
+    def __init__(
+        self,
+        num_heads: int,
+        d_model: int,
+        d_k: int,
+        d_v: int,
+        d_ff: int,
+        num_layers: int = 6,
+    ):
         super().__init__()
         self.layers = nn.ModuleList(
             [
@@ -182,6 +201,7 @@ class Encoder(nn.Module):
         for layer in self.layers:
             input = layer(input)
         return input
+
 
 class DecoderLayer(nn.Module):
     def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int):
@@ -214,8 +234,17 @@ class DecoderLayer(nn.Module):
 
         return out3
 
+
 class Decoder(nn.Module):
-    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int, num_layers: int = 6):
+    def __init__(
+        self,
+        num_heads: int,
+        d_model: int,
+        d_k: int,
+        d_v: int,
+        d_ff: int,
+        num_layers: int = 6,
+    ):
         super().__init__()
         self.layers = nn.ModuleList(
             [
@@ -230,6 +259,7 @@ class Decoder(nn.Module):
         for layer in self.layers:
             input = layer(encoder_output, input)
         return input
+
 
 class Transformer(nn.Module):
     def __init__(
@@ -267,13 +297,12 @@ class Transformer(nn.Module):
         decoder_output = self.decoder(encoder_output, tgt)
 
         decoder_output = self.linear(decoder_output)
-
         output = F.log_softmax(decoder_output, dim=-1)
 
         return output
 
 
-multi_head_attention = MultiHeadAttention(num_heads=8, d_model=512, d_k=64, d_v=64)
+"""multi_head_attention = MultiHeadAttention(num_heads=8, d_model=512, d_k=64, d_v=64)
 
 
 q = torch.randn(64, 10, 512)
@@ -334,3 +363,4 @@ for i in range(10):
     output = transformer(input, input)
     output = output.argmax(dim=-1)  # (1, 1)
     input = torch.cat([input, output[:, -1:]], dim=-1)
+"""
