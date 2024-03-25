@@ -71,6 +71,7 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self, Q: Tensor, K: Tensor, V: Tensor):
         """
+        len_q, len_k, len_v are the lengths of the sequences for Q, K, V
         Args:
             Q: Query matrix with shape (batch_size, len_q, d_model)
             K: Key matrix with shape (batch_size, len_k, d_model)
@@ -88,31 +89,33 @@ class MultiHeadAttention(nn.Module):
             self.W_q(Q)
             .view(batch_size, len_q, self.num_heads, self.d_k)
             .transpose(1, 2)
-        )
+        ) # shape (batch_size, num_heads, len_q, d_k)
         K = (
             self.W_k(K)
             .view(batch_size, len_k, self.num_heads, self.d_k)
             .transpose(1, 2)
-        )
+        ) # shape (batch_size, num_heads, len_k, d_k)
         V = (
             self.W_v(V)
             .view(batch_size, len_v, self.num_heads, self.d_v)
             .transpose(1, 2)
-        )
+        ) # shape (batch_size, num_heads, len_v, d_v)
 
         out = self._scaled_dot_product_attention(
             Q, K, V
         )  # (n, num_heads, seq_len, d_v)
 
         # now, we need to multiply by the linear with input size num_heads * d_v
-        out = out.transpose(1, 2)  # (batch_size, len_q, num_heads, d_v)
+        out = out.transpose(1, 2)  # shape (batch_size, len_q, num_heads, d_v)
 
         assert out.size(2) == self.num_heads
         assert out.size(3) == self.d_v
         assert out.size(1) == len_q
         assert out.size(0) == batch_size
-
-        # dont use view because memory layout is not compatible
+        
+        # We then merge the heads together to get (batch_size, len_q, num_heads * d_v)
+        # In the paper, num_heads * d_v = d_model
+        # Dont use view because memory layout is not compatible
         out = out.reshape(batch_size, len_q, self.num_heads * self.d_v)
 
         return self.W_o(out)
@@ -127,12 +130,12 @@ class MultiHeadAttention(nn.Module):
         """
         x = (
             Q @ K.transpose(-2, -1)
-        ) / self.d_k**0.5  # (batch_size, num_heads, len_q, len_k)
+        ) / self.d_k ** 0.5 # (batch_size, num_heads, len_q, len_k)
         # len_q = len_k !!!
         return F.softmax(x, dim=1) @ V  # (batch_size, num_heads, len_q, d_v)
 
 
-class Encoder(nn.Module):
+class EncoderLayer(nn.Module):
     def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int):
         super().__init__()
         self.multi_head_attention = MultiHeadAttention(
@@ -155,8 +158,24 @@ class Encoder(nn.Module):
 
         return out2
 
+class Encoder(nn.Module):
+    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int, num_layers: int = 6):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [
+                EncoderLayer(
+                    num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+                )
+                for _ in range(num_layers)
+            ]
+        )
 
-class Decoder(nn.Module):
+    def forward(self, input: Tensor) -> Tensor:
+        for layer in self.layers:
+            input = layer(input)
+        return input
+
+class DecoderLayer(nn.Module):
     def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int):
         super().__init__()
         self.masked_multi_head_attention = MultiHeadAttention(
@@ -188,6 +207,22 @@ class Decoder(nn.Module):
 
         return out3
 
+class Decoder(nn.Module):
+    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int, num_layers: int = 6):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [
+                DecoderLayer(
+                    num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+                )
+                for _ in range(num_layers)
+            ]
+        )
+
+    def forward(self, encoder_output: Tensor, input: Tensor) -> Tensor:
+        for layer in self.layers:
+            input = layer(encoder_output, input)
+        return input
 
 class Transformer(nn.Module):
     def __init__(
