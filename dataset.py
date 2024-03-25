@@ -17,15 +17,24 @@ class Config:
     tgt_lang: str = "es"
     split: int = 0.9
     seq_len: int = 400
+    model_path: str = "transformer.pth"
+    train: bool = True
 
 
 def get_dataset(config: Config) -> Tuple[Dataset, Dataset]:
     dataset = load_dataset(
         config.ds_name, f"{config.src_lang}-{config.tgt_lang}", split="train"
     )  # only train is available, we will split it later
+
+    # filter dataset from long sentences
+    dataset = dataset.filter(
+        lambda x: len(x["translation"][config.src_lang].split()) < config.seq_len
+        and len(x["translation"][config.tgt_lang].split()) < config.seq_len
+    )
     train_size = int(config.split * len(dataset))
     valid_size = len(dataset) - train_size
     train_ds, valid_ds = random_split(dataset, [train_size, valid_size])
+    # print examples of train_ds
     return TranslationDataset(
         train_ds, config.src_lang, config.tgt_lang, config.seq_len
     ), TranslationDataset(valid_ds, config.src_lang, config.tgt_lang, config.seq_len)

@@ -297,9 +297,8 @@ class Transformer(nn.Module):
         decoder_output = self.decoder(encoder_output, tgt)
 
         decoder_output = self.linear(decoder_output)
-        output = F.log_softmax(decoder_output, dim=-1)
-
-        return output
+        
+        return decoder_output
 
 
 """multi_head_attention = MultiHeadAttention(num_heads=8, d_model=512, d_k=64, d_v=64)

@@ -118,3 +118,7 @@ ignored
 .ruff_cache
 
 .pytest_cache
+
+
+
+*.pth
