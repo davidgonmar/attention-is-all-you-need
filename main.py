@@ -54,11 +54,12 @@ class PositionalEncoding(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int):
+    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, mask: bool = False):
+        
         super().__init__()
         self.num_heads = num_heads
         self.d_model = d_model
-
+        self.mask = mask
         self.d_k = d_k
         self.d_v = d_v
 
@@ -117,7 +118,6 @@ class MultiHeadAttention(nn.Module):
         # In the paper, num_heads * d_v = d_model
         # Dont use view because memory layout is not compatible
         out = out.reshape(batch_size, len_q, self.num_heads * self.d_v)
-
         return self.W_o(out)
 
     def _scaled_dot_product_attention(self, Q: Tensor, K: Tensor, V: Tensor):
@@ -126,12 +126,20 @@ class MultiHeadAttention(nn.Module):
         Args:
             Q: Query matrix with shape (batch_size, num_heads, len_q, d_k)
             K: Key matrix with shape (batch_size, num_heads, len_k, d_k)
-            V: Value matrix with shape (batch_size, num_heads, len_v, d_v)
+            V: Value matrix with shape (batch_size, num_heads, len_v = len_k, d_v)
         """
         x = (
             Q @ K.transpose(-2, -1)
         ) / self.d_k ** 0.5 # (batch_size, num_heads, len_q, len_k)
         # len_q = len_k !!!
+        if self.mask:
+            # Apply masking, will be broadcasted to shape (batch_size, num_heads, len_q, len_k)
+            # Basically, create a matrix with 1s below and in the diagonal, 0s above
+            # Then, mask where mask == 0 with -inf
+            # So basically we set the values above the diagonal to -inf
+            # When softmax is applied, these values will become 0
+            mask = torch.tril(torch.ones(x.size(-2), x.size(-1))).view(1, 1, x.size(-2), x.size(-1))
+            x = x.masked_fill(mask == 0, float("-inf"))
         return F.softmax(x, dim=1) @ V  # (batch_size, num_heads, len_q, d_v)
 
 
@@ -179,12 +187,11 @@ class DecoderLayer(nn.Module):
     def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int):
         super().__init__()
         self.masked_multi_head_attention = MultiHeadAttention(
-            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, mask=True
         )
         self.multi_head_attention = MultiHeadAttention(
-            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, mask=False
         )
-
         self.position_wise_feed_forward = PositionWiseFeedForward(
             d_model=d_model, inner_dim=d_ff
         )
@@ -197,7 +204,7 @@ class DecoderLayer(nn.Module):
         out1 += input  # residual connection
         out1 = self.layer_norm1(out1)
 
-        out2 = self.masked_multi_head_attention(encoder_output, encoder_output, input)
+        out2 = self.multi_head_attention(encoder_output, encoder_output, input)
         out2 += input  # residual connection
         out2 = self.layer_norm1(out1)
 
