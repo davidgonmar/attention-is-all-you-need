@@ -150,7 +150,7 @@ class MultiHeadAttention(nn.Module):
             )
             x = x.masked_fill(mask == 0, -1e9)
         # print("after masking: ", x)
-        return F.softmax(x, dim=1) @ V  # (batch_size, num_heads, len_q, d_v)
+        return F.softmax(x, dim=-1) @ V  # (batch_size, num_heads, len_q, d_v)
 
 
 class EncoderLayer(nn.Module):
@@ -172,7 +172,7 @@ class EncoderLayer(nn.Module):
 
         out2 = self.position_wise_feed_forward(out1)
         out2 += out1  # residual connection
-        out2 = self.layer_norm2(out1)
+        out2 = self.layer_norm2(out2)
 
         return out2
 
@@ -225,12 +225,12 @@ class DecoderLayer(nn.Module):
         out1 = self.layer_norm1(out1)
 
         out2 = self.multi_head_attention(encoder_output, encoder_output, input)
-        out2 += input  # residual connection
-        out2 = self.layer_norm1(out1)
+        out2 += out1  # residual connection
+        out2 = self.layer_norm1(out2)
 
         out3 = self.position_wise_feed_forward(out2)
         out3 += out2  # residual connection
-        out3 = self.layer_norm2(out2)
+        out3 = self.layer_norm2(out3)
 
         return out3
 

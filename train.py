@@ -15,7 +15,7 @@ vocab_size = train_ds.src_tok.get_vocab_size()
 print("Vocab size:", vocab_size)
 
 
-train_dl = DataLoader(train_ds, batch_size=16, shuffle=True)
+train_dl = DataLoader(train_ds, batch_size=12, shuffle=True)
 valid_dl = DataLoader(valid_ds, batch_size=16, shuffle=False)
 
 
@@ -37,8 +37,8 @@ if config.model_path:
 
 
 def train(model, epochs, train_dl, valid_dl):
-    criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    criterion = torch.nn.CrossEntropyLoss(ignore_index=train_ds.tgt_tok.token_to_id("<pad>")) # ignore padding token
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.00001)
     for epoch in range(epochs):
         model.train()
         for i, o in enumerate(train_dl):
@@ -58,7 +58,6 @@ def train(model, epochs, train_dl, valid_dl):
             #print(src, dec_inp, tgt)
             out = model(src, dec_inp)
 
-            # print(out.shape)
 
             loss = criterion(
                 out.view(-1, out.size(-1)), tgt.view(-1)
@@ -77,7 +76,7 @@ def train(model, epochs, train_dl, valid_dl):
                 torch.save(model.state_dict(), "transformer.pth")
 
 if config.train:
-    train(transformer, 1, train_dl, valid_dl)
+    train(transformer, 100, train_dl, valid_dl)
 
 
 def translate(model, src_sentence, src_tok, tgt_tok, max_len=config.seq_len):
@@ -101,46 +100,50 @@ def translate(model, src_sentence, src_tok, tgt_tok, max_len=config.seq_len):
     ).to(device)
 
     # we'll start with the <s> token
-    dec_inp = torch.tensor([[tgt_tok.token_to_id("<s>")]], dtype=torch.int64)
-
-    # pad the tgt tensor
-    pad_len = max_len - len(dec_inp[0])
-    
-    dec_inp = torch.cat(
-        [
-            dec_inp,
-            torch.tensor([[tgt_tok.token_to_id("<pad>")]] * pad_len).view(1, -1),
-        ],
-        dim=-1,
-    ).to(device)
-
-    # first iteration
-    out: torch.Tensor = model(src, dec_inp)
-    
-
-    print("first out:",out.argmax(-1))
-    print("first out decoded:", "<", tgt_tok.decode(out.argmax(-1).squeeze().tolist(), skip_special_tokens=False), ">")
-    
+    dec_inp = torch.tensor([[tgt_tok.token_to_id("<s>")]], dtype=torch.int64).to(device)
+    print("dec_inp:", dec_inp.shape)
+    out = None
     for i in range(max_len - 1):
+        # first, pad dec_inp to max_len
+        _dec_inp = dec_inp
+        pad_len = max_len - dec_inp.size(1)
+        _dec_inp = torch.cat(
+            [
+                _dec_inp,
+                torch.tensor([[tgt_tok.token_to_id("<pad>")]] * pad_len, dtype=torch.int64).view(1, -1).to(device),
+            ],
+            dim=-1,
+        ).to(device)
+        assert _dec_inp.size(1) == max_len
+
+
+        # now, we can get the output
+        out = model(src, _dec_inp)
+
         # get the last token
-        last_token = out[0, -1, :].argmax().item()
-        dec_inp[0, i+1] = last_token
-        out = model(src, dec_inp)
-        if last_token == tgt_tok.token_to_id("</s>"):
-            print("Breaking")
+        last_tok = out[0, -1, :].argmax().item()
+        dec_inp = torch.cat([dec_inp, torch.tensor([[last_tok]], dtype=torch.int64).to(device)], dim=-1)
+
+        if last_tok == tgt_tok.token_to_id("</s>"):
             break
+
+        
     
 
     print("Input:", src_sentence)
-    print("Output tensor:", dec_inp)
-    out = dec_inp.squeeze().tolist()
+    print("Encoded input:", src)
+    print("Output tensor:", out)
+    print("Output tensor argmax:", out.argmax(dim=-1).squeeze().tolist())
+    out = out.argmax(dim=-1).squeeze().tolist()
     out = tgt_tok.decode(out)
+    print("Output:", out)
+
     print("Output:", "<", out.join(" "), ">")
 
 
 
 translate(transformer, "I am a student", train_ds.src_tok, train_ds.tgt_tok)
-translate(transformer, "My name is John", train_ds.src_tok, train_ds.tgt_tok)
+translate(transformer, "Yesterday I was trying to avoid this", train_ds.src_tok, train_ds.tgt_tok)
 
 # save the model
 
