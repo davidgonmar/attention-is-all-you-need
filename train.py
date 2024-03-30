@@ -1,4 +1,4 @@
-from dataset import Config, get_dataset
+from dataset import Config, get_dataset, get_padding_mask
 from torch.utils.data import DataLoader
 from model import Transformer
 
@@ -55,10 +55,17 @@ def train(model, epochs, train_dl, valid_dl):
             dec_inp = dec_inp.to(device)
             tgt = tgt.to(device)
 
-            #print(src, dec_inp, tgt)
-            out = model(src, dec_inp)
+            src_mask = get_padding_mask(src, train_ds.src_tok.token_to_id("<pad>")).to(device)
+            tgt_mask = get_padding_mask(dec_inp, train_ds.tgt_tok.token_to_id("<pad>")).to(device)
 
+            
+            out = model(src, dec_inp, src_mask, tgt_mask)
 
+            # decoded out
+            decoded_out = torch.argmax(out, dim=-1)
+            decoded_out = decoded_out.cpu().numpy()
+            decoded_out = [train_ds.tgt_tok.decode(x) for x in decoded_out]
+            #print("decoded_out:", decoded_out)
             loss = criterion(
                 out.view(-1, out.size(-1)), tgt.view(-1)
             )  # flatten the output and target tensors
@@ -79,72 +86,3 @@ if config.train:
     train(transformer, 100, train_dl, valid_dl)
 
 
-def translate(model, src_sentence, src_tok, tgt_tok, max_len=config.seq_len):
-    model.eval()
-    
-
-    # we'll pad both the src and tgt tensors, up to max_len
-    src = src_tok.encode(src_sentence).ids
-    src = torch.tensor([src], dtype=torch.int64)
-
-    # pad the src tensor
-    pad_len = max_len - len(src[0]) - 2  # -2 for sos and eos
-    src = torch.cat(
-        [
-            torch.tensor([[src_tok.token_to_id("<s>")]]),
-            src,
-            torch.tensor([[src_tok.token_to_id("</s>")]]),
-            torch.tensor([[src_tok.token_to_id("<pad>")]] * pad_len).view(1, -1),
-        ],
-        dim=-1,
-    ).to(device)
-
-    # we'll start with the <s> token
-    dec_inp = torch.tensor([[tgt_tok.token_to_id("<s>")]], dtype=torch.int64).to(device)
-    print("dec_inp:", dec_inp.shape)
-    out = None
-    for i in range(max_len - 1):
-        # first, pad dec_inp to max_len
-        _dec_inp = dec_inp
-        pad_len = max_len - dec_inp.size(1)
-        _dec_inp = torch.cat(
-            [
-                _dec_inp,
-                torch.tensor([[tgt_tok.token_to_id("<pad>")]] * pad_len, dtype=torch.int64).view(1, -1).to(device),
-            ],
-            dim=-1,
-        ).to(device)
-        assert _dec_inp.size(1) == max_len
-
-
-        # now, we can get the output
-        out = model(src, _dec_inp)
-
-        # get the last token
-        last_tok = out[0, -1, :].argmax().item()
-        dec_inp = torch.cat([dec_inp, torch.tensor([[last_tok]], dtype=torch.int64).to(device)], dim=-1)
-
-        if last_tok == tgt_tok.token_to_id("</s>"):
-            break
-
-        
-    
-
-    print("Input:", src_sentence)
-    print("Encoded input:", src)
-    print("Output tensor:", out)
-    print("Output tensor argmax:", out.argmax(dim=-1).squeeze().tolist())
-    out = out.argmax(dim=-1).squeeze().tolist()
-    out = tgt_tok.decode(out)
-    print("Output:", out)
-
-    print("Output:", "<", out.join(" "), ">")
-
-
-
-translate(transformer, "I am a student", train_ds.src_tok, train_ds.tgt_tok)
-translate(transformer, "Yesterday I was trying to avoid this", train_ds.src_tok, train_ds.tgt_tok)
-
-# save the model
-
-torch.save(transformer.state_dict(), "transformer.pth")

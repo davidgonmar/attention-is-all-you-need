@@ -57,6 +57,13 @@ def get_tokenizer(ds: Dataset, lang: str):
     else:
         return Tokenizer.from_file(str(cached_path))
 
+def get_padding_mask(seq: torch.Tensor, pad_id: int) -> torch.Tensor:
+    """
+    seq: (batch_size, seq_len)
+
+    res of shape (batch_size, 1, seq_len)
+    """
+    return (seq != pad_id).unsqueeze(-2).unsqueeze(-2) # (batch_size, 1, seq_len)
 
 class TranslationDataset(torch.utils.data.Dataset):
     def __init__(self, ds: Dataset, src_lang: str, tgt_lang: str, seq_len: int = 128):

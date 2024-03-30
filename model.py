@@ -3,7 +3,6 @@ from torch import Tensor
 from torch.nn import functional as F
 from torch import nn
 
-
 class PositionWiseFeedForward(nn.Module):
     def __init__(self, d_model: int, inner_dim: int):
         """
@@ -60,7 +59,7 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.num_heads = num_heads
         self.d_model = d_model
-        self.mask = mask
+        self.causal = mask
         self.d_k = d_k
         self.d_v = d_v
 
@@ -71,7 +70,7 @@ class MultiHeadAttention(nn.Module):
         self.W_v = nn.Linear(d_model, num_heads * d_v, bias=False)
         self.W_o = nn.Linear(num_heads * d_v, d_model, bias=False)
 
-    def forward(self, Q: Tensor, K: Tensor, V: Tensor):
+    def forward(self, Q: Tensor, K: Tensor, V: Tensor, pad_attn_mask: Tensor = None):
         """
         len_q, len_k, len_v are the lengths of the sequences for Q, K, V
         Args:
@@ -106,7 +105,7 @@ class MultiHeadAttention(nn.Module):
         )  # shape (batch_size, num_heads, len_v, d_v)
 
         out = self._scaled_dot_product_attention(
-            Q, K, V
+            Q, K, V, pad_attn_mask
         )  # (n, num_heads, seq_len, d_v)
 
         # now, we need to multiply by the linear with input size num_heads * d_v
@@ -123,7 +122,7 @@ class MultiHeadAttention(nn.Module):
         out = out.reshape(batch_size, len_q, self.num_heads * self.d_v)
         return self.W_o(out)
 
-    def _scaled_dot_product_attention(self, Q: Tensor, K: Tensor, V: Tensor):
+    def _scaled_dot_product_attention(self, Q: Tensor, K: Tensor, V: Tensor, pad_attn_mask) -> Tensor:
         """
         This is equivalent to separately computing the attention for each head.
         Args:
@@ -134,21 +133,39 @@ class MultiHeadAttention(nn.Module):
         x = (
             Q @ K.transpose(-2, -1)
         ) / self.d_k**0.5  # (batch_size, num_heads, len_q, len_k)
-        # len_q = len_k !!!
-
-        if self.mask:
+        # len_v = len_k !!!
+        mask = pad_attn_mask
+        if self.causal:
             # print("before masking: ", x)
             # Apply masking, will be broadcasted to shape (batch_size, num_heads, len_q, len_k)
             # Basically, create a matrix with 1s below and in the diagonal, 0s above
             # Then, mask where mask == 0 with -inf
             # So basically we set the values above the diagonal to -inf
             # When softmax is applied, these values will become 0
-            mask = (
-                torch.tril(torch.ones(x.size(-2), x.size(-1)))
+            causal_mask = (
+                torch.tril(torch.ones(x.size(-2), x.size(-1)), diagonal=0)
                 .view(1, 1, x.size(-2), x.size(-1))
-                .to(x.device)
+                .to(x.device) # (1, 1, len_q, len_k)
             )
-            x = x.masked_fill(mask == 0, -1e9)
+            mask = mask.bool() & causal_mask.bool() if mask is not None else causal_mask.bool()
+            x = x.masked_fill(mask == 0, -1e9) # (batch_size, num_heads, len_q, len_k)
+            # show the attention matrix, black and white (black is 0, white is 1)
+            """softmaxed = F.softmax(x, dim=-1)
+            plt.figure(figsize=(20, 20))
+            plt.imshow(softmaxed[0, 0].detach().cpu().numpy(), cmap="gray")
+            plt.show()
+            """ 
+
+        else:
+            if mask is not None:
+                """mask = mask.broadcast_to(x.shape)
+                import matplotlib.pyplot as plt
+                # show the mask
+                plt.figure(figsize=(20, 20))
+                plt.imshow(mask[0, 0].detach().cpu().numpy(), cmap="gray")
+                plt.show()
+                x = x.masked_fill(mask == 0, -1e9)"""
+                x = x.masked_fill(mask == 0, -1e9) # (batch_size, num_heads, len_q, len_k)
         # print("after masking: ", x)
         return F.softmax(x, dim=-1) @ V  # (batch_size, num_heads, len_q, d_v)
 
@@ -165,8 +182,8 @@ class EncoderLayer(nn.Module):
         self.layer_norm1 = nn.LayerNorm(d_model)
         self.layer_norm2 = nn.LayerNorm(d_model)
 
-    def forward(self, input: Tensor) -> Tensor:
-        out1 = self.multi_head_attention(input, input, input)
+    def forward(self, input: Tensor, pad_attn_mask: Tensor) -> Tensor:
+        out1 = self.multi_head_attention(input, input, input, pad_attn_mask)
         out1 += input  # residual connection
         out1 = self.layer_norm1(out1)
 
@@ -197,9 +214,9 @@ class Encoder(nn.Module):
             ]
         )
 
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: Tensor, pad_attn_mask: Tensor) -> Tensor:
         for layer in self.layers:
-            input = layer(input)
+            input = layer(input, pad_attn_mask)
         return input
 
 
@@ -219,12 +236,12 @@ class DecoderLayer(nn.Module):
         self.layer_norm2 = nn.LayerNorm(d_model)
         self.layer_norm3 = nn.LayerNorm(d_model)
 
-    def forward(self, encoder_output: Tensor, input: Tensor):
-        out1 = self.masked_multi_head_attention(input, input, input)
+    def forward(self, encoder_output: Tensor, input: Tensor, pad_attn_mask_src: Tensor, pad_attn_mask_tgt: Tensor) -> Tensor:
+        out1 = self.masked_multi_head_attention(input, input, input, pad_attn_mask_tgt)
         out1 += input  # residual connection
         out1 = self.layer_norm1(out1)
 
-        out2 = self.multi_head_attention(encoder_output, encoder_output, input)
+        out2 = self.multi_head_attention(input, encoder_output, encoder_output, pad_attn_mask_src) # we use pad_attn_mask_src because we want to mask the padding in the encoder output
         out2 += out1  # residual connection
         out2 = self.layer_norm1(out2)
 
@@ -255,9 +272,9 @@ class Decoder(nn.Module):
             ]
         )
 
-    def forward(self, encoder_output: Tensor, input: Tensor) -> Tensor:
+    def forward(self, encoder_output: Tensor, input: Tensor, pad_attn_mask_src: Tensor, pad_attn_mask_tgt: Tensor) -> Tensor:
         for layer in self.layers:
-            input = layer(encoder_output, input)
+            input = layer(encoder_output, input, pad_attn_mask_src, pad_attn_mask_tgt)
         return input
 
 
@@ -285,16 +302,16 @@ class Transformer(nn.Module):
         self.positional_decoder = PositionalEncoding(d_model=d_model, seq_len=1000)
         self.linear = nn.Linear(d_model, tgt_vocab_size)
 
-    def forward(self, src: Tensor, tgt: Tensor) -> Tensor:
+    def forward(self, src: Tensor, tgt: Tensor, src_pad_attn_mask: Tensor, tgt_pad_attn_mask: Tensor) -> Tensor:
         src = self.input_embedder(src)
         src = self.positional_encoder(src)
 
-        encoder_output = self.encoder(src)
+        encoder_output = self.encoder(src, src_pad_attn_mask)
 
         tgt = self.output_embedder(tgt)
         tgt = self.positional_decoder(tgt)
 
-        decoder_output = self.decoder(encoder_output, tgt)
+        decoder_output = self.decoder(encoder_output, tgt, src_pad_attn_mask, tgt_pad_attn_mask)
 
         decoder_output = self.linear(decoder_output)
         
