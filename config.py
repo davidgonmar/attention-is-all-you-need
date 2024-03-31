@@ -52,10 +52,11 @@ class ModelConfig(BaseConfig):
 class TrainingConfig(BaseConfig):
     max_epochs: int = 10
     batch_size: int = 12
-    lr: float = 1
+    lr: float = 1 # Learning rate base, will be scaled by scheduler
     b1: float = 0.9
     b2: float = 0.98
     eps: float = 1e-9
     warmup_steps: int = 4000
     model_path : Optional[Path] = _get_latest_checkpoint_path()
     save_freq: int = 0.1 # Save every 10% of the epoch
+    label_smoothing: float = 0.1

@@ -4,6 +4,7 @@ import torch.nn as nn
 from config import ModelConfig, TrainingConfig
 from typing import Tuple
 from model import Transformer
+from torch.optim.lr_scheduler import LambdaLR
 
 def get_optim_and_scheduler(model: nn.Module, model_config: ModelConfig, training_config: TrainingConfig) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]:
     optimizer = torch.optim.Adam(
@@ -13,9 +14,15 @@ def get_optim_and_scheduler(model: nn.Module, model_config: ModelConfig, trainin
         eps=training_config.eps,
     )
 
-    scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lambda i: model_config.d_model ** -0.5 * min(max(i, 1) ** -0.5, max(i * training_config.warmup_steps, 1) ** -1.5) # use max(i, 1) to avoid exp of 0.0
-    )
+    def lr_lambda(i):
+        d_model_inv_sqrt = model_config.d_model ** -0.5
+        step_num = max(i, 1)  # Ensure step_num is at least 1 to avoid division by zero
+        warmup_steps = training_config.warmup_steps
+        factor = min(step_num ** -0.5, step_num * warmup_steps ** -1.5)
+        return d_model_inv_sqrt * factor
+
+    scheduler = LambdaLR(optimizer, lr_lambda, verbose=True)
+
 
     return optimizer, scheduler
 
@@ -34,7 +41,7 @@ def get_padding_mask(seq: torch.Tensor, pad_token: int) -> torch.Tensor:
 
 
 def train_transformer(model: Transformer, train_dl: torch.utils.data.DataLoader, device: torch.device, tokenizer: Tokenizer, model_config:ModelConfig, training_config: TrainingConfig) -> None:
-    criterion = torch.nn.CrossEntropyLoss(ignore_index= tokenizer.token_to_id("<pad>"), reduction="mean")
+    criterion = torch.nn.CrossEntropyLoss(ignore_index= tokenizer.token_to_id("<pad>"), reduction="mean", label_smoothing=0.1)
     
     optimizer, scheduler = get_optim_and_scheduler(model, model_config, training_config)
 
