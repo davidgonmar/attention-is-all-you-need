@@ -318,6 +318,21 @@ class Transformer(nn.Module):
         return decoder_output
 
 
+def get_parallel_model(model: nn.Module) -> nn.Module:
+    """
+    This function will return a parallel model that will use the GPUs specified in device_ids
+    Args:
+        model: the model to parallelize
+        device_ids: list of device ids to use
+    """
+    n_devices = torch.cuda.device_count()
+    if n_devices == 0 or n_devices == 1:
+        print("Not using any GPUs" if n_devices == 0 else "Using 1 GPU")
+        return model
+    print(f"Using {n_devices} GPUs")
+    return nn.DataParallel(model)
+
+
 """multi_head_attention = MultiHeadAttention(num_heads=8, d_model=512, d_k=64, d_v=64)
 
 

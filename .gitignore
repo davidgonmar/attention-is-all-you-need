@@ -122,3 +122,7 @@ ignored
 
 
 *.pth
+
+cache
+
+checkpoints
