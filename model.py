@@ -332,24 +332,19 @@ class Transformer(nn.Module):
         )
     
     def to_parallel(self) -> nn.DataParallel["Transformer"]:
-        n_devices = torch.cuda.device_count()
-        if n_devices == 0 or n_devices == 1:
-            print("Not using any GPUs" if n_devices == 0 else "Using 1 GPU")
-            return self
-        print(f"Using {n_devices} GPUs")
-        return nn.DataParallel(self)
+        return get_parallel_model(self)
     
     def load_from_checkpoint(self, checkpoint_path: str) ->  "Transformer":
         if not checkpoint_path:
             print("No checkpoint path provided, starting from scratch")
-            return
+            return self
         try:
             checkpoint = torch.load(checkpoint_path)
             self.load_state_dict(checkpoint["model"])
             print("Loaded model from", checkpoint_path)
         except FileNotFoundError:
             print("Model not found at", checkpoint_path, "Starting from scratch")
-        return
+        return self
 
 def get_parallel_model(model: nn.Module) -> nn.Module:
     """

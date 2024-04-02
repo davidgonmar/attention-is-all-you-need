@@ -50,22 +50,20 @@ def train_transformer(model: Transformer, train_dl: torch.utils.data.DataLoader,
     optimizer, scheduler = get_optim_and_scheduler(model, model_config, training_config)
 
     start_epoch = 0
-    start_iter = 0
     if training_config.checkpoint_path is not None:
         checkpoint = torch.load(training_config.checkpoint_path)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
         start_epoch = checkpoint["epoch"]
-        start_iter = checkpoint["iter"]
         print("Loaded checkpoint from", training_config.checkpoint_path)
-        print("info: epoch=", start_epoch, "iter=", start_iter)
+        print("info: epoch=", start_epoch)
         print("info: lr=", optimizer.param_groups[0]["lr"])
         print("info: warmup_steps=", training_config.warmup_steps)
 
     for epoch in range(start_epoch, training_config.max_epochs):
         model.train()
-        for i, elem in enumerate(train_dl, start=start_iter):
+        for i, elem in enumerate(train_dl):
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
@@ -84,14 +82,13 @@ def train_transformer(model: Transformer, train_dl: torch.utils.data.DataLoader,
             scheduler.step()
             optimizer.zero_grad()
 
-            if (i / len(train_dl)) % training_config.save_freq == 0: # we can save for example, every 10% epoch
+        if epoch % training_config.save_freq == 0: # Save every epoch if save_freq is 1
                 torch.save(
                     {
                         "model": model.state_dict(),
                         "optimizer": optimizer.state_dict(),
                         "scheduler": scheduler.state_dict(),
                         "epoch": epoch,
-                        "iter": i,
                     },
                     f"checkpoints/transformer_{epoch}_{i}.pth" if training_config.save_info else "checkpoints/transformer.pth",
                 )
