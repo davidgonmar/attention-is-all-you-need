@@ -3,6 +3,8 @@ from torch import Tensor
 from torch.nn import functional as F
 from torch import nn
 
+from config import ModelConfig
+
 class PositionWiseFeedForward(nn.Module):
     def __init__(self, d_model: int, inner_dim: int):
         """
@@ -316,7 +318,38 @@ class Transformer(nn.Module):
         decoder_output = self.linear(decoder_output)
         
         return decoder_output
-
+    
+    @staticmethod
+    def from_config(config: ModelConfig, src_vocab_size: int, tgt_vocab_size: int) -> "Transformer":
+        return Transformer(
+            num_heads=config.num_heads,
+            d_model=config.d_model,
+            d_k=config.d_k,
+            d_v=config.d_v,
+            d_ff=config.d_ff,
+            src_vocab_size=src_vocab_size,
+            tgt_vocab_size=tgt_vocab_size,
+        )
+    
+    def to_parallel(self) -> nn.DataParallel["Transformer"]:
+        n_devices = torch.cuda.device_count()
+        if n_devices == 0 or n_devices == 1:
+            print("Not using any GPUs" if n_devices == 0 else "Using 1 GPU")
+            return self
+        print(f"Using {n_devices} GPUs")
+        return nn.DataParallel(self)
+    
+    def load_from_checkpoint(self, checkpoint_path: str) ->  "Transformer":
+        if not checkpoint_path:
+            print("No checkpoint path provided, starting from scratch")
+            return
+        try:
+            checkpoint = torch.load(checkpoint_path)
+            self.load_state_dict(checkpoint["model"])
+            print("Loaded model from", checkpoint_path)
+        except FileNotFoundError:
+            print("Model not found at", checkpoint_path, "Starting from scratch")
+        return
 
 def get_parallel_model(model: nn.Module) -> nn.Module:
     """
@@ -332,6 +365,17 @@ def get_parallel_model(model: nn.Module) -> nn.Module:
     print(f"Using {n_devices} GPUs")
     return nn.DataParallel(model)
 
+def load_model(model: nn.Module, checkpoint_path: str) -> nn.Module:
+    if not checkpoint_path:
+        print("No checkpoint path provided, starting from scratch")
+        return model
+    try:
+        checkpoint = torch.load(checkpoint_path)
+        model.load_state_dict(checkpoint["model"])
+        print("Loaded model from", checkpoint_path)
+    except FileNotFoundError:
+        print("Model not found at", checkpoint_path, "Starting from scratch")
+    return model
 
 """multi_head_attention = MultiHeadAttention(num_heads=8, d_model=512, d_k=64, d_v=64)
 

@@ -14,15 +14,19 @@ def get_optim_and_scheduler(model: nn.Module, model_config: ModelConfig, trainin
         eps=training_config.eps,
     )
 
-    def lr_lambda(i):
+    def sq_lambda(i):
         d_model_inv_sqrt = model_config.d_model ** -0.5
         step_num = max(i, 1)  # Ensure step_num is at least 1 to avoid division by zero
         warmup_steps = training_config.warmup_steps
         factor = min(step_num ** -0.5, step_num * warmup_steps ** -1.5)
         return d_model_inv_sqrt * factor
+    
+    def cst_lambda(i):
+        return 1.0
+    
+    lambda_func = sq_lambda if training_config.use_scheduler else cst_lambda
 
-    scheduler = LambdaLR(optimizer, lr_lambda, verbose=True)
-
+    scheduler = LambdaLR(optimizer, lambda i: lambda_func(i))
 
     return optimizer, scheduler
 
@@ -45,9 +49,23 @@ def train_transformer(model: Transformer, train_dl: torch.utils.data.DataLoader,
     
     optimizer, scheduler = get_optim_and_scheduler(model, model_config, training_config)
 
-    for epoch in range(training_config.max_epochs):
+    start_epoch = 0
+    start_iter = 0
+    if training_config.checkpoint_path is not None:
+        checkpoint = torch.load(training_config.checkpoint_path)
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        scheduler.load_state_dict(checkpoint["scheduler"])
+        start_epoch = checkpoint["epoch"]
+        start_iter = checkpoint["iter"]
+        print("Loaded checkpoint from", training_config.checkpoint_path)
+        print("info: epoch=", start_epoch, "iter=", start_iter)
+        print("info: lr=", optimizer.param_groups[0]["lr"])
+        print("info: warmup_steps=", training_config.warmup_steps)
+
+    for epoch in range(start_epoch, training_config.max_epochs):
         model.train()
-        for i, elem in enumerate(train_dl):
+        for i, elem in enumerate(train_dl, start=start_iter):
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
@@ -72,8 +90,10 @@ def train_transformer(model: Transformer, train_dl: torch.utils.data.DataLoader,
                         "model": model.state_dict(),
                         "optimizer": optimizer.state_dict(),
                         "scheduler": scheduler.state_dict(),
+                        "epoch": epoch,
+                        "iter": i,
                     },
-                    f"checkpoints/transformer_{epoch}_{i}.pth",
+                    f"checkpoints/transformer_{epoch}_{i}.pth" if training_config.save_info else "checkpoints/transformer.pth",
                 )
 
 
