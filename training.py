@@ -6,7 +6,10 @@ from typing import Tuple
 from model import Transformer
 from torch.optim.lr_scheduler import LambdaLR
 
-def get_optim_and_scheduler(model: nn.Module, model_config: ModelConfig, training_config: TrainingConfig) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]:
+
+def get_optim_and_scheduler(
+    model: nn.Module, model_config: ModelConfig, training_config: TrainingConfig
+) -> Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]:
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=training_config.lr,
@@ -15,20 +18,21 @@ def get_optim_and_scheduler(model: nn.Module, model_config: ModelConfig, trainin
     )
 
     def sq_lambda(i):
-        d_model_inv_sqrt = model_config.d_model ** -0.5
+        d_model_inv_sqrt = model_config.d_model**-0.5
         step_num = max(i, 1)  # Ensure step_num is at least 1 to avoid division by zero
         warmup_steps = training_config.warmup_steps
-        factor = min(step_num ** -0.5, step_num * warmup_steps ** -1.5)
+        factor = min(step_num**-0.5, step_num * warmup_steps**-1.5)
         return d_model_inv_sqrt * factor
-    
+
     def cst_lambda(i):
         return 1.0
-    
+
     lambda_func = sq_lambda if training_config.use_scheduler else cst_lambda
 
     scheduler = LambdaLR(optimizer, lambda i: lambda_func(i))
 
     return optimizer, scheduler
+
 
 def get_padding_mask(seq: torch.Tensor, pad_token: int) -> torch.Tensor:
     """
@@ -44,9 +48,20 @@ def get_padding_mask(seq: torch.Tensor, pad_token: int) -> torch.Tensor:
     return (seq != pad_token).unsqueeze(1).unsqueeze(2)
 
 
-def train_transformer(model: Transformer, train_dl: torch.utils.data.DataLoader, device: torch.device, tokenizer: Tokenizer, model_config:ModelConfig, training_config: TrainingConfig) -> None:
-    criterion = torch.nn.CrossEntropyLoss(ignore_index= tokenizer.token_to_id("<pad>"), reduction="mean", label_smoothing=0.1)
-    
+def train_transformer(
+    model: Transformer,
+    train_dl: torch.utils.data.DataLoader,
+    device: torch.device,
+    tokenizer: Tokenizer,
+    model_config: ModelConfig,
+    training_config: TrainingConfig,
+) -> None:
+    criterion = torch.nn.CrossEntropyLoss(
+        ignore_index=tokenizer.token_to_id("<pad>"),
+        reduction="mean",
+        label_smoothing=0.1,
+    )
+
     optimizer, scheduler = get_optim_and_scheduler(model, model_config, training_config)
 
     start_epoch = 0
@@ -67,30 +82,43 @@ def train_transformer(model: Transformer, train_dl: torch.utils.data.DataLoader,
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
-            src_mask = get_padding_mask(encoder_input, tokenizer.token_to_id("<pad>")).to(device)
-            tgt_mask = get_padding_mask(decoder_input, tokenizer.token_to_id("<pad>")).to(device)
+            src_mask = get_padding_mask(
+                encoder_input, tokenizer.token_to_id("<pad>")
+            ).to(device)
+            tgt_mask = get_padding_mask(
+                decoder_input, tokenizer.token_to_id("<pad>")
+            ).to(device)
 
             out = model(encoder_input, decoder_input, src_mask, tgt_mask)
             loss = criterion(
                 out.view(-1, out.size(-1)), labels.view(-1)
             )  # flatten the output and target tensors
 
-            print("iter:", i, " out of ", len(train_dl), " epoch:", epoch, " loss:", loss.item())
+            print(
+                "iter:",
+                i,
+                " out of ",
+                len(train_dl),
+                " epoch:",
+                epoch,
+                " loss:",
+                loss.item(),
+            )
             loss.backward()
 
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
 
-        if epoch % training_config.save_freq == 0: # Save every epoch if save_freq is 1
-                torch.save(
-                    {
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "scheduler": scheduler.state_dict(),
-                        "epoch": epoch,
-                    },
-                    f"checkpoints/transformer_{epoch}_{i}.pth" if training_config.save_info else "checkpoints/transformer.pth",
-                )
-
-
+        if epoch % training_config.save_freq == 0:  # Save every epoch if save_freq is 1
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "epoch": epoch,
+                },
+                f"checkpoints/transformer_{epoch}_{i}.pth"
+                if training_config.save_info
+                else "checkpoints/transformer.pth",
+            )

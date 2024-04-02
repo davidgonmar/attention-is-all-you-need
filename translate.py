@@ -11,33 +11,47 @@ if __name__ == "__main__":
 
     train_ds, _ = get_dataset(ds_config)
     vocab_size = train_ds.src_tok.get_vocab_size()
-    
-    transformer = Transformer.from_config(model_config, vocab_size, vocab_size).load_from_checkpoint(tr_config.checkpoint_path).to_parallel().to(device)
+
+    transformer = (
+        Transformer.from_config(model_config, vocab_size, vocab_size)
+        .load_from_checkpoint(tr_config.checkpoint_path)
+        .to_parallel()
+        .to(device)
+    )
 
     def translate(model, src_sentence, src_tok, tgt_tok, max_len=ds_config.seq_len):
         model.eval()
 
         src_ids = torch.tensor([src_tok.encode(src_sentence).ids], dtype=torch.long)
-        tgt_ids = torch.tensor([[tgt_tok.token_to_id("<s>")]], dtype=torch.long).to(device)
+        tgt_ids = torch.tensor([[tgt_tok.token_to_id("<s>")]], dtype=torch.long).to(
+            device
+        )
 
         src_len = src_ids.size(1)
 
         # pad both to max_len
         pad_tok = src_tok.token_to_id("<pad>")
-        
+
         # pad src_ids
-        src_ids = torch.cat([src_ids, torch.tensor([[pad_tok] * (max_len - src_len)], dtype=torch.long)], dim=1).to(device)
+        src_ids = torch.cat(
+            [
+                src_ids,
+                torch.tensor([[pad_tok] * (max_len - src_len)], dtype=torch.long),
+            ],
+            dim=1,
+        ).to(device)
 
         # generate translation iteratively
         for _ in range(max_len - 1):
             with torch.no_grad():
-                src_padding_mask = get_padding_mask(src_ids, src_tok.token_to_id("<pad>")).to(device)
+                src_padding_mask = get_padding_mask(
+                    src_ids, src_tok.token_to_id("<pad>")
+                ).to(device)
 
                 # generate autoregressively
                 output = model(src_ids, tgt_ids, src_padding_mask, None)
                 next_token = torch.argmax(output[:, -1], dim=-1).unsqueeze(1)
                 tgt_ids = torch.cat([tgt_ids, next_token], dim=1)
-
 
                 # break if end of sentence token is generated
                 if next_token.item() == tgt_tok.token_to_id("</s>"):
@@ -46,11 +60,11 @@ if __name__ == "__main__":
         translation = tgt_tok.decode(tgt_ids[0].tolist())
         return translation, tgt_ids
 
-
-
     while True:
         src_sentence = input("Enter a sentence to translate: ")
         if src_sentence == "exit":
             break
-        string, tensor = translate(transformer, src_sentence, train_ds.src_tok, train_ds.tgt_tok)
+        string, tensor = translate(
+            transformer, src_sentence, train_ds.src_tok, train_ds.tgt_tok
+        )
         print(string)

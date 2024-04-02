@@ -19,24 +19,31 @@ def _get_latest_checkpoint_path() -> Optional[Path]:
 
     return max(checkpoints, key=lambda x: x.stat().st_ctime)
 
+
 class BaseConfig:
     def __repr__(self):
-        return f"{self.__class__.__name__}(" + ", ".join(
-            [f"{k}={v}" for k, v in self.__dict__.items()]) + ")"
+        return (
+            f"{self.__class__.__name__}("
+            + ", ".join([f"{k}={v}" for k, v in self.__dict__.items()])
+            + ")"
+        )
 
     def add_to_arg_parser(self, parser: ArgumentParser) -> None:
         for k, v in self.__dict__.items():
             if not isinstance(v, bool):
                 parser.add_argument(f"--{k}", type=type(v), default=v)
             else:
+
                 def parse_bool(x):
                     return x.lower() in ["true", "1", "yes"]
+
                 parser.add_argument(f"--{k}", type=parse_bool, default=v)
 
-    def update_from_arg_parser(self, args: List[Any]) -> None  :
+    def update_from_arg_parser(self, args: List[Any]) -> None:
         for k, v in self.__dict__.items():
             setattr(self, k, getattr(args, k) if hasattr(args, k) else v)
-        
+
+
 @dataclass
 class DatasetConfig(BaseConfig):
     ds_name: str = "opus_books"
@@ -44,7 +51,8 @@ class DatasetConfig(BaseConfig):
     tgt_lang: str = "es"
     split: int = 0.9
     seq_len: int = 400
-    
+
+
 @dataclass
 class ModelConfig(BaseConfig):
     num_heads: int = 8
@@ -53,22 +61,26 @@ class ModelConfig(BaseConfig):
     d_v: int = 64
     d_ff: int = 2048
 
+
 @dataclass
 class TrainingConfig(BaseConfig):
     max_epochs: int = 100
     batch_size: int = 12
-    lr: float = 1.0 # Learning rate base, will be scaled by scheduler
+    lr: float = 1.0  # Learning rate base, will be scaled by scheduler
     use_scheduler: bool = True
     b1: float = 0.9
     b2: float = 0.98
     eps: float = 1e-9
     warmup_steps: int = 4000
-    checkpoint_path : Optional[Path] = _get_latest_checkpoint_path()
-    save_freq: int = 1 # once per epoch
-    save_info: bool = False # Save the epoch and iteration in the checkpoint
+    checkpoint_path: Optional[Path] = _get_latest_checkpoint_path()
+    save_freq: int = 1  # once per epoch
+    save_info: bool = False  # Save the epoch and iteration in the checkpoint
     label_smoothing: float = 0.1
 
-def get_config_and_parser(existing_parser: Optional[ArgumentParser] = None, update: bool = True) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, ArgumentParser]:
+
+def get_config_and_parser(
+    existing_parser: Optional[ArgumentParser] = None, update: bool = True
+) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, ArgumentParser]:
     parser = existing_parser or ArgumentParser()
     ds_config = DatasetConfig()
     model_config = ModelConfig()

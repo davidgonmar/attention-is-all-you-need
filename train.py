@@ -19,8 +19,16 @@ def main():
     print("Vocab size:", vocab_size)
     print("===========================================================")
     train_dl = DataLoader(train_ds, batch_size=training_config.batch_size, shuffle=True)
-    transformer = Transformer.from_config(model_config, vocab_size, vocab_size).load_from_checkpoint(training_config.checkpoint_path).to_parallel().to(device)
-    train_transformer(transformer, train_dl, device, train_ds.src_tok, model_config, training_config)
+    transformer = (
+        Transformer.from_config(model_config, vocab_size, vocab_size)
+        .load_from_checkpoint(training_config.checkpoint_path)
+        .to_parallel()
+        .to(device)
+    )
+    train_transformer(
+        transformer, train_dl, device, train_ds.src_tok, model_config, training_config
+    )
+
 
 if __name__ == "__main__":
     main()

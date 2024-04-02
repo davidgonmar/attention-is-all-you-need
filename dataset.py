@@ -10,19 +10,21 @@ import torch
 from config import DatasetConfig
 
 
-def get_dataset(config: DatasetConfig) -> Tuple["TranslationDataset", "TranslationDataset"]:
+def get_dataset(
+    config: DatasetConfig,
+) -> Tuple["TranslationDataset", "TranslationDataset"]:
     """
     Returns a tuple of training and validation datasets
 
     Args:
         config: loaded configuration
-    
+
     Returns:
         Tuple of training and validation datasets
     """
     dataset = load_dataset(
         config.ds_name, f"{config.src_lang}-{config.tgt_lang}", split="train"
-    ) # We'll manually split the dataset
+    )  # We'll manually split the dataset
 
     train_size = int(config.split * len(dataset))
     valid_size = len(dataset) - train_size
@@ -36,6 +38,7 @@ def _get_sentences_iter(ds: Dataset, lang: str):
     for item in ds:
         yield item["translation"][lang]
 
+
 def _get_tokenizer(ds: Dataset, lang: str) -> Tokenizer:
     cached_path = Path("data") / f"ds_{lang}.json"
     if not Path.exists(cached_path):
@@ -48,6 +51,7 @@ def _get_tokenizer(ds: Dataset, lang: str) -> Tokenizer:
     else:
         return Tokenizer.from_file(str(cached_path))
 
+
 class TranslationDataset(torch.utils.data.Dataset):
     def __init__(self, ds: Dataset, src_lang: str, tgt_lang: str, seq_len: int = 128):
         self.raw_ds = ds
@@ -56,11 +60,15 @@ class TranslationDataset(torch.utils.data.Dataset):
 
         self.src_tok = _get_tokenizer(self.raw_ds, src_lang)
         self.tgt_tok = _get_tokenizer(self.raw_ds, tgt_lang)
-        
+
         self.src_tok.enable_truncation(max_length=seq_len)
         self.tgt_tok.enable_truncation(max_length=seq_len)
-        self.src_tok.enable_padding(length=seq_len, pad_id=self.src_tok.token_to_id("<pad>"))
-        self.tgt_tok.enable_padding(length=seq_len, pad_id=self.tgt_tok.token_to_id("<pad>"))
+        self.src_tok.enable_padding(
+            length=seq_len, pad_id=self.src_tok.token_to_id("<pad>")
+        )
+        self.tgt_tok.enable_padding(
+            length=seq_len, pad_id=self.tgt_tok.token_to_id("<pad>")
+        )
         self.sos = self._load_sp_tok("<s>")
         self.eos = self._load_sp_tok("</s>")
         self.pad = self._load_sp_tok("<pad>")
@@ -76,7 +84,7 @@ class TranslationDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, key):
         both = self.raw_ds[key]
-        src= "<s> " + both["translation"][self.src_lang] + " </s>"
+        src = "<s> " + both["translation"][self.src_lang] + " </s>"
         tgt_shifted = "<s> " + both["translation"][self.tgt_lang]
         tgt_labels = both["translation"][self.tgt_lang] + " </s>"
         src = self.src_tok.encode(src).ids
