@@ -45,7 +45,6 @@ class DatasetConfig(BaseConfig):
     split: int = 0.9
     seq_len: int = 400
     
-
 @dataclass
 class ModelConfig(BaseConfig):
     num_heads: int = 8
