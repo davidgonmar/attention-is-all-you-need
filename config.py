@@ -26,7 +26,12 @@ class BaseConfig:
 
     def add_to_arg_parser(self, parser: ArgumentParser) -> None:
         for k, v in self.__dict__.items():
-            parser.add_argument(f"--{k}", type=type(v), default=v)
+            if not isinstance(v, bool):
+                parser.add_argument(f"--{k}", type=type(v), default=v)
+            else:
+                def parse_bool(x):
+                    return x.lower() in ["true", "1", "yes"]
+                parser.add_argument(f"--{k}", type=parse_bool, default=v)
 
     def update_from_arg_parser(self, args: List[Any]) -> None  :
         for k, v in self.__dict__.items():
