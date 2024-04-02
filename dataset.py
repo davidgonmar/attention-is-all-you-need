@@ -20,16 +20,10 @@ def get_dataset(config: DatasetConfig) -> Tuple["TranslationDataset", "Translati
     Returns:
         Tuple of training and validation datasets
     """
-
     dataset = load_dataset(
         config.ds_name, f"{config.src_lang}-{config.tgt_lang}", split="train"
     ) # We'll manually split the dataset
 
-    # We get rid of examples that are too long
-    dataset = dataset.filter(
-        lambda x: len(x["translation"][config.src_lang].split()) < config.seq_len
-        and len(x["translation"][config.tgt_lang].split()) < config.seq_len
-    )
     train_size = int(config.split * len(dataset))
     valid_size = len(dataset) - train_size
     train_ds, valid_ds = random_split(dataset, [train_size, valid_size])
@@ -62,7 +56,11 @@ class TranslationDataset(torch.utils.data.Dataset):
 
         self.src_tok = _get_tokenizer(self.raw_ds, src_lang)
         self.tgt_tok = _get_tokenizer(self.raw_ds, tgt_lang)
-
+        
+        self.src_tok.enable_truncation(max_length=seq_len)
+        self.tgt_tok.enable_truncation(max_length=seq_len)
+        self.src_tok.enable_padding(length=seq_len, pad_id=self.src_tok.token_to_id("<pad>"))
+        self.tgt_tok.enable_padding(length=seq_len, pad_id=self.tgt_tok.token_to_id("<pad>"))
         self.sos = self._load_sp_tok("<s>")
         self.eos = self._load_sp_tok("</s>")
         self.pad = self._load_sp_tok("<pad>")
@@ -78,23 +76,15 @@ class TranslationDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, key):
         both = self.raw_ds[key]
-        src_seq = both["translation"][self.src_lang]
-        tgt_seq = both["translation"][self.tgt_lang]
-        src_seq = self.src_tok.encode(src_seq).ids
-        tgt_seq = self.tgt_tok.encode(tgt_seq).ids
-        pad_len_src = self.seq_len - len(src_seq) - 2
-        pad_len_tgt = self.seq_len - len(tgt_seq) - 1
+        src= "<s> " + both["translation"][self.src_lang] + " </s>"
+        tgt_shifted = "<s> " + both["translation"][self.tgt_lang]
+        tgt_labels = both["translation"][self.tgt_lang] + " </s>"
+        src = self.src_tok.encode(src).ids
+        tgt_shifted = self.tgt_tok.encode(tgt_shifted).ids
+        tgt_labels = self.tgt_tok.encode(tgt_labels).ids
+
         return {
-            "src": torch.tensor(
-                [self.sos] + src_seq + [self.eos] + [self.pad] * pad_len_src,
-                dtype=torch.int64,
-            ),
-            "tgt_shifted": torch.tensor(
-                [self.sos] + tgt_seq + [self.pad] * pad_len_tgt,
-                dtype=torch.int64,
-            ),
-            "tgt_labels": torch.tensor(
-                tgt_seq + [self.eos] + [self.pad] * pad_len_tgt,
-                dtype=torch.int64,
-            ),
+            "src": torch.tensor(src, dtype=torch.int64),
+            "tgt_shifted": torch.tensor(tgt_shifted, dtype=torch.int64),
+            "tgt_labels": torch.tensor(tgt_labels, dtype=torch.int64),
         }
