@@ -1,0 +1,30 @@
+# Description: Configuration file for training a transformer model on the OPUS Books dataset
+# I used this configuration file to train the model on my laptop with a RTX 2070 GPU
+
+dataset:
+  ds_name: opus_books
+  src_lang: en
+  tgt_lang: es
+  split: 0.9
+  seq_len: 50
+
+model:
+  num_heads: 8
+  d_model: 512
+  d_k: 64
+  d_v: 64
+  d_ff: 2048
+
+training:
+  max_epochs: 500
+  batch_size: 32
+  lr: 0.0001
+  use_scheduler: false
+  b1: 0.9
+  b2: 0.98
+  eps: 0.0000000001 # 1e-9
+  warmup_steps: 4000
+  checkpoint_path: "latest"
+  save_freq: 1
+  save_info: false
+  label_smoothing: 0.1

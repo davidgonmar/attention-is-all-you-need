@@ -28,7 +28,9 @@ def get_dataset(
 
     train_size = int(config.split * len(dataset))
     valid_size = len(dataset) - train_size
-    train_ds, valid_ds = random_split(dataset, [train_size, valid_size])
+    train_ds, valid_ds = random_split(
+        dataset, [train_size, valid_size], generator=torch.Generator().manual_seed(42)
+    )  # so the dataset remains the same
     return TranslationDataset(
         train_ds, config.src_lang, config.tgt_lang, config.seq_len
     ), TranslationDataset(valid_ds, config.src_lang, config.tgt_lang, config.seq_len)

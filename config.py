@@ -3,8 +3,28 @@ from typing import List, Any, Tuple
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import yaml
 
 CHECKPINTS_DIR = Path("checkpoints")
+
+
+def configs_from_yaml(
+    yaml_path: Path,
+) -> Tuple["DatasetConfig", "ModelConfig", "TrainingConfig"]:
+    with open(yaml_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    ds_config = DatasetConfig(**config["dataset"])
+    model_config = ModelConfig(**config["model"])
+    training_config = TrainingConfig(**config["training"])
+    # If no checkpoint path is provided in the yaml, get the latest checkpoint
+    if (
+        "checkpoint_path" not in config["training"]
+        or config["training"]["checkpoint_path"] is None
+        or config["training"]["checkpoint_path"] == "latest"
+    ):
+        training_config.checkpoint_path = _get_latest_checkpoint_path()
+    return ds_config, model_config, training_config
 
 
 def _get_latest_checkpoint_path() -> Optional[Path]:
@@ -82,9 +102,17 @@ def get_config_and_parser(
     existing_parser: Optional[ArgumentParser] = None, update: bool = True
 ) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, ArgumentParser]:
     parser = existing_parser or ArgumentParser()
-    ds_config = DatasetConfig()
-    model_config = ModelConfig()
-    training_config = TrainingConfig()
+    parser.add_argument(
+        "--config", type=Path, default=None
+    )  # allows default config file to be passed (will be overridden)
+    args = parser.parse_args()
+    if args.config is not None:
+        # allow overriding the yaml config with command line arguments
+        ds_config, model_config, training_config = configs_from_yaml(args.config)
+    else:
+        ds_config = DatasetConfig()
+        model_config = ModelConfig()
+        training_config = TrainingConfig()
 
     ds_config.add_to_arg_parser(parser)
     model_config.add_to_arg_parser(parser)
