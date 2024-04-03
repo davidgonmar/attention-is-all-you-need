@@ -315,6 +315,9 @@ class Transformer(nn.Module):
         tgt_vocab_size: int,
     ):
         super().__init__()
+        self.config = ModelConfig(
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+        )
         self.encoder = Encoder(
             num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
         )
@@ -373,6 +376,12 @@ class Transformer(nn.Module):
             return self
         try:
             checkpoint = torch.load(checkpoint_path)
+            if checkpoint["model_config"] != self.config:
+                raise ValueError(
+                    "Model config in checkpoint does not match the current model config. Checkpoint: {}, Model: {}".format(
+                        checkpoint["model_config"], self.config
+                    )
+                )
             self.load_state_dict(checkpoint["model"])
             print("Loaded model from", checkpoint_path)
         except FileNotFoundError:
@@ -393,19 +402,6 @@ def get_parallel_model(model: nn.Module) -> nn.Module:
         return model
     print(f"Using {n_devices} GPUs")
     return nn.DataParallel(model)
-
-
-def load_model(model: nn.Module, checkpoint_path: str) -> nn.Module:
-    if not checkpoint_path:
-        print("No checkpoint path provided, starting from scratch")
-        return model
-    try:
-        checkpoint = torch.load(checkpoint_path)
-        model.load_state_dict(checkpoint["model"])
-        print("Loaded model from", checkpoint_path)
-    except FileNotFoundError:
-        print("Model not found at", checkpoint_path, "Starting from scratch")
-    return model
 
 
 """multi_head_attention = MultiHeadAttention(num_heads=8, d_model=512, d_k=64, d_v=64)

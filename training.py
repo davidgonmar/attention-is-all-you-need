@@ -70,9 +70,16 @@ def train_transformer(
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
-        start_epoch = checkpoint["epoch"]
+        start_epoch = (
+            checkpoint["epoch"] + 1
+        )  # for example, if we loaded epoch 10(assumed to be completed), we want to start from 11
         print("Loaded checkpoint from", training_config.checkpoint_path)
-        print("info: epoch=", start_epoch)
+        print(
+            "info: saved epoch=",
+            checkpoint["epoch"],
+            "starting from epoch=",
+            start_epoch,
+        )
         print("info: lr=", optimizer.param_groups[0]["lr"])
         print("info: warmup_steps=", training_config.warmup_steps)
 
@@ -111,14 +118,18 @@ def train_transformer(
             optimizer.zero_grad()
 
         if epoch % training_config.save_freq == 0:  # Save every epoch if save_freq is 1
+            print("Saving checkpoint... Epoch:", epoch)
             torch.save(
                 {
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "scheduler": scheduler.state_dict(),
                     "epoch": epoch,
+                    "model_config": model_config,  # does not occupy much space, but useful so we do not accidentally load a different model config
                 },
-                f"checkpoints/transformer_{epoch}_{i}.pth"
-                if training_config.save_info
-                else "checkpoints/transformer.pth",
+                (
+                    f"checkpoints/transformer_{epoch}.pth"
+                    if training_config.save_info
+                    else "checkpoints/transformer.pth"
+                ),
             )
