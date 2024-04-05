@@ -23,6 +23,9 @@ def configs_from_yaml(
         config["training"]["checkpoint_filename"] = _get_latest_checkpoint_path(
             checkpoint_dir
         )
+    if config["training"]["checkpoint_filename"] == "dont_use":
+        config["training"]["checkpoint_filename"] = None
+
     return config["dataset"], config["model"], config["training"], config["eval"]
 
 
@@ -87,6 +90,7 @@ class ModelConfig(BaseConfig):
     d_k: int = 64
     d_v: int = 64
     d_ff: int = 2048
+    dropout: float = 0.1
 
 
 @dataclass
@@ -144,9 +148,12 @@ def get_config_and_parser(
     # load configs from yaml if provided
     if args.config is not None:
         print(f"Loading configs from {args.config}")
-        ds_config_dict, model_config_dict, training_config_dict, eval_config_dict = (
-            configs_from_yaml(args.config)
-        )
+        (
+            ds_config_dict,
+            model_config_dict,
+            training_config_dict,
+            eval_config_dict,
+        ) = configs_from_yaml(args.config)
         ds_config.load_from_dict(ds_config_dict)
         model_config.load_from_dict(model_config_dict)
         training_config.load_from_dict(training_config_dict)

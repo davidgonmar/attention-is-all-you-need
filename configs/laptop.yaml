@@ -14,6 +14,7 @@ model:
   d_k: 64
   d_v: 64
   d_ff: 2048
+  dropout: 0
 
 training:
   max_epochs: 500

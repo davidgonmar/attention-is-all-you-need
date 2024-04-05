@@ -6,9 +6,13 @@ from config import get_config_and_parser
 
 
 if __name__ == "__main__":
-    ds_config, model_config, tr_config, _, get_config_and_parser = (
-        get_config_and_parser(update=True)
-    )
+    (
+        ds_config,
+        model_config,
+        tr_config,
+        _,
+        get_config_and_parser,
+    ) = get_config_and_parser(update=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     train_ds, _ = get_dataset(ds_config)

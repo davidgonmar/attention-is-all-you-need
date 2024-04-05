@@ -158,31 +158,25 @@ class MultiHeadAttention(nn.Module):
                 else causal_mask.bool()
             )
             x = x.masked_fill(mask == 0, -1e9)  # (batch_size, num_heads, len_q, len_k)
-            # show the attention matrix, black and white (black is 0, white is 1)
-            """softmaxed = F.softmax(x, dim=-1)
-            plt.figure(figsize=(20, 20))
-            plt.imshow(softmaxed[0, 0].detach().cpu().numpy(), cmap="gray")
-            plt.show()
-            """
 
         else:
             if mask is not None:
-                """mask = mask.broadcast_to(x.shape)
-                import matplotlib.pyplot as plt
-                # show the mask
-                plt.figure(figsize=(20, 20))
-                plt.imshow(mask[0, 0].detach().cpu().numpy(), cmap="gray")
-                plt.show()
-                x = x.masked_fill(mask == 0, -1e9)"""
                 x = x.masked_fill(
                     mask == 0, -1e9
                 )  # (batch_size, num_heads, len_q, len_k)
-        # print("after masking: ", x)
         return F.softmax(x, dim=-1) @ V  # (batch_size, num_heads, len_q, d_v)
 
 
 class EncoderLayer(nn.Module):
-    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int):
+    def __init__(
+        self,
+        num_heads: int,
+        d_model: int,
+        d_k: int,
+        d_v: int,
+        d_ff: int,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.multi_head_attention = MultiHeadAttention(
             num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v
@@ -192,15 +186,14 @@ class EncoderLayer(nn.Module):
         )
         self.layer_norm1 = nn.LayerNorm(d_model)
         self.layer_norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, input: Tensor, pad_attn_mask: Tensor) -> Tensor:
         out1 = self.multi_head_attention(input, input, input, pad_attn_mask)
-        out1 += input  # residual connection
-        out1 = self.layer_norm1(out1)
+        out1 = self.layer_norm1(self.dropout(out1) + input)  # residual connection
 
         out2 = self.position_wise_feed_forward(out1)
-        out2 += out1  # residual connection
-        out2 = self.layer_norm2(out2)
+        out2 = self.layer_norm2(self.dropout(out2) + out1)  # residual connection
 
         return out2
 
@@ -214,12 +207,18 @@ class Encoder(nn.Module):
         d_v: int,
         d_ff: int,
         num_layers: int = 6,
+        dropout: float = 0.1,
     ):
         super().__init__()
         self.layers = nn.ModuleList(
             [
                 EncoderLayer(
-                    num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+                    num_heads=num_heads,
+                    d_model=d_model,
+                    d_k=d_k,
+                    d_v=d_v,
+                    d_ff=d_ff,
+                    dropout=dropout,
                 )
                 for _ in range(num_layers)
             ]
@@ -232,7 +231,15 @@ class Encoder(nn.Module):
 
 
 class DecoderLayer(nn.Module):
-    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, d_ff: int):
+    def __init__(
+        self,
+        num_heads: int,
+        d_model: int,
+        d_k: int,
+        d_v: int,
+        d_ff: int,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.masked_multi_head_attention = MultiHeadAttention(
             num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, mask=True
@@ -246,6 +253,7 @@ class DecoderLayer(nn.Module):
         self.layer_norm1 = nn.LayerNorm(d_model)
         self.layer_norm2 = nn.LayerNorm(d_model)
         self.layer_norm3 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(
         self,
@@ -255,18 +263,15 @@ class DecoderLayer(nn.Module):
         pad_attn_mask_tgt: Tensor,
     ) -> Tensor:
         out1 = self.masked_multi_head_attention(input, input, input, pad_attn_mask_tgt)
-        out1 += input  # residual connection
-        out1 = self.layer_norm1(out1)
+        out1 = self.layer_norm1(self.dropout(out1) + input)  # residual connection
 
         out2 = self.multi_head_attention(
             input, encoder_output, encoder_output, pad_attn_mask_src
         )  # we use pad_attn_mask_src because we want to mask the padding in the encoder output
-        out2 += out1  # residual connection
-        out2 = self.layer_norm1(out2)
+        out2 = self.layer_norm1(self.dropout(out2) + out1)  # residual connection
 
         out3 = self.position_wise_feed_forward(out2)
-        out3 += out2  # residual connection
-        out3 = self.layer_norm2(out3)
+        out3 = self.layer_norm3(self.dropout(out3) + out2)  # residual connection
 
         return out3
 
@@ -280,12 +285,18 @@ class Decoder(nn.Module):
         d_v: int,
         d_ff: int,
         num_layers: int = 6,
+        dropout: float = 0.1,
     ):
         super().__init__()
         self.layers = nn.ModuleList(
             [
                 DecoderLayer(
-                    num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+                    num_heads=num_heads,
+                    d_model=d_model,
+                    d_k=d_k,
+                    d_v=d_v,
+                    d_ff=d_ff,
+                    dropout=dropout,
                 )
                 for _ in range(num_layers)
             ]
@@ -313,22 +324,34 @@ class Transformer(nn.Module):
         d_ff: int,
         src_vocab_size: int,
         tgt_vocab_size: int,
+        dropout: float = 0.1,
     ):
         super().__init__()
         self.config = ModelConfig(
             num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
         )
         self.encoder = Encoder(
-            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+            num_heads=num_heads,
+            d_model=d_model,
+            d_k=d_k,
+            d_v=d_v,
+            d_ff=d_ff,
+            dropout=dropout,
         )
         self.decoder = Decoder(
-            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+            num_heads=num_heads,
+            d_model=d_model,
+            d_k=d_k,
+            d_v=d_v,
+            d_ff=d_ff,
+            dropout=dropout,
         )
         self.input_embedder = InputEmbedder(d_model=d_model, vocab_size=src_vocab_size)
         self.positional_encoder = PositionalEncoding(d_model=d_model, seq_len=1000)
         self.output_embedder = InputEmbedder(d_model=d_model, vocab_size=tgt_vocab_size)
         self.positional_decoder = PositionalEncoding(d_model=d_model, seq_len=1000)
         self.linear = nn.Linear(d_model, tgt_vocab_size)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(
         self,
@@ -339,11 +362,13 @@ class Transformer(nn.Module):
     ) -> Tensor:
         src = self.input_embedder(src)
         src = self.positional_encoder(src)
+        src = self.dropout(src)
 
         encoder_output = self.encoder(src, src_pad_attn_mask)
 
         tgt = self.output_embedder(tgt)
         tgt = self.positional_decoder(tgt)
+        tgt = self.dropout(tgt)
 
         decoder_output = self.decoder(
             encoder_output, tgt, src_pad_attn_mask, tgt_pad_attn_mask
@@ -365,6 +390,7 @@ class Transformer(nn.Module):
             d_ff=config.d_ff,
             src_vocab_size=src_vocab_size,
             tgt_vocab_size=tgt_vocab_size,
+            dropout=config.dropout,
         )
 
     def to_parallel(self) -> nn.DataParallel["Transformer"]:
