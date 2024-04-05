@@ -14,7 +14,9 @@ model:
   d_k: 64
   d_v: 64
   d_ff: 2048
-  dropout: 0
+  dropout: 0.1
+  n_encoder_layers: 6
+  n_decoder_layers: 6
 
 training:
   max_epochs: 500

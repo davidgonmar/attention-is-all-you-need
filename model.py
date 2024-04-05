@@ -33,12 +33,10 @@ class InputEmbedder(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, seq_len: int, dropout: float = 0) -> None:
+    def __init__(self, d_model: int, seq_len: int, dropout: float) -> None:
         super().__init__()
         self.d_model = d_model
         self.seq_len = seq_len
-        self.dropout = nn.Dropout(dropout)
-
         pos_encoding = torch.zeros(seq_len, d_model)  # (seq_len, d_model)
         pos = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)  # (seq_len, 1)
         div_term = torch.pow(10000, torch.arange(0, d_model, 2) / d_model)
@@ -51,18 +49,15 @@ class PositionalEncoding(nn.Module):
         # x is of shape (batch_size, seq_len, d_model)
         # so we want only to add the positional encoding to the seq_len dimension
         cropped_pos_encoding = self.pos_encoding[: x.size(1), :]  # (seq_len, d_model)
-        x = x + cropped_pos_encoding
-        return self.dropout(x)
+        return x + cropped_pos_encoding
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(
-        self, num_heads: int, d_model: int, d_k: int, d_v: int, mask: bool = False
-    ):
+    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, causal: bool):
         super().__init__()
         self.num_heads = num_heads
         self.d_model = d_model
-        self.causal = mask
+        self.causal = causal
         self.d_k = d_k
         self.d_v = d_v
 
@@ -175,11 +170,11 @@ class EncoderLayer(nn.Module):
         d_k: int,
         d_v: int,
         d_ff: int,
-        dropout: float = 0.1,
+        dropout: float,
     ):
         super().__init__()
         self.multi_head_attention = MultiHeadAttention(
-            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, causal=False
         )
         self.position_wise_feed_forward = PositionWiseFeedForward(
             d_model=d_model, inner_dim=d_ff
@@ -206,8 +201,8 @@ class Encoder(nn.Module):
         d_k: int,
         d_v: int,
         d_ff: int,
-        num_layers: int = 6,
-        dropout: float = 0.1,
+        num_layers: int,
+        dropout: float,
     ):
         super().__init__()
         self.layers = nn.ModuleList(
@@ -238,14 +233,14 @@ class DecoderLayer(nn.Module):
         d_k: int,
         d_v: int,
         d_ff: int,
-        dropout: float = 0.1,
+        dropout: float,
     ):
         super().__init__()
         self.masked_multi_head_attention = MultiHeadAttention(
-            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, mask=True
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, causal=True
         )
         self.multi_head_attention = MultiHeadAttention(
-            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, mask=False
+            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, causal=False
         )
         self.position_wise_feed_forward = PositionWiseFeedForward(
             d_model=d_model, inner_dim=d_ff
@@ -284,8 +279,8 @@ class Decoder(nn.Module):
         d_k: int,
         d_v: int,
         d_ff: int,
-        num_layers: int = 6,
-        dropout: float = 0.1,
+        num_layers: int,
+        dropout: float,
     ):
         super().__init__()
         self.layers = nn.ModuleList(
@@ -324,11 +319,20 @@ class Transformer(nn.Module):
         d_ff: int,
         src_vocab_size: int,
         tgt_vocab_size: int,
-        dropout: float = 0.1,
+        dropout: float,
+        n_encoder_layers: int,
+        n_decoder_layers: int,
     ):
         super().__init__()
         self.config = ModelConfig(
-            num_heads=num_heads, d_model=d_model, d_k=d_k, d_v=d_v, d_ff=d_ff
+            num_heads=num_heads,
+            d_model=d_model,
+            d_k=d_k,
+            d_v=d_v,
+            d_ff=d_ff,
+            n_encoder_layers=n_encoder_layers,
+            n_decoder_layers=n_decoder_layers,
+            dropout=dropout,
         )
         self.encoder = Encoder(
             num_heads=num_heads,
@@ -337,6 +341,7 @@ class Transformer(nn.Module):
             d_v=d_v,
             d_ff=d_ff,
             dropout=dropout,
+            num_layers=n_encoder_layers,
         )
         self.decoder = Decoder(
             num_heads=num_heads,
@@ -345,11 +350,16 @@ class Transformer(nn.Module):
             d_v=d_v,
             d_ff=d_ff,
             dropout=dropout,
+            num_layers=n_decoder_layers,
         )
         self.input_embedder = InputEmbedder(d_model=d_model, vocab_size=src_vocab_size)
-        self.positional_encoder = PositionalEncoding(d_model=d_model, seq_len=1000)
+        self.positional_encoder = PositionalEncoding(
+            d_model=d_model, seq_len=1000, dropout=dropout
+        )
         self.output_embedder = InputEmbedder(d_model=d_model, vocab_size=tgt_vocab_size)
-        self.positional_decoder = PositionalEncoding(d_model=d_model, seq_len=1000)
+        self.positional_decoder = PositionalEncoding(
+            d_model=d_model, seq_len=1000, dropout=dropout
+        )
         self.linear = nn.Linear(d_model, tgt_vocab_size)
         self.dropout = nn.Dropout(dropout)
 
@@ -391,6 +401,8 @@ class Transformer(nn.Module):
             src_vocab_size=src_vocab_size,
             tgt_vocab_size=tgt_vocab_size,
             dropout=config.dropout,
+            n_encoder_layers=config.n_encoder_layers,
+            n_decoder_layers=config.n_decoder_layers,
         )
 
     def to_parallel(self) -> nn.DataParallel["Transformer"]:

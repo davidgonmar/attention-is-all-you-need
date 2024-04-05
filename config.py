@@ -91,6 +91,8 @@ class ModelConfig(BaseConfig):
     d_v: int = 64
     d_ff: int = 2048
     dropout: float = 0.1
+    n_encoder_layers: int = 6
+    n_decoder_layers: int = 6
 
 
 @dataclass
@@ -157,7 +159,7 @@ def get_config_and_parser(
         ds_config.load_from_dict(ds_config_dict)
         model_config.load_from_dict(model_config_dict)
         training_config.load_from_dict(training_config_dict)
-        eval_config.load_from_dict(training_config_dict)
+        eval_config.load_from_dict(eval_config_dict)
 
     # now update configs to get overrides from command line
     ds_config.update_from_arg_parser(args)
