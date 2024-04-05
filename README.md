@@ -43,7 +43,7 @@ class TrainingConfig(BaseConfig):
     warmup_steps: int = 4000
     checkpoint_path : Optional[Path] = _get_latest_checkpoint_path()
     save_freq: int = 1 # once per epoch
-    save_info: bool = False # Save the epoch and iteration in the checkpoint
+    save_info_in_filename: bool = False # Save the epoch and iteration in the checkpoint
     label_smoothing: float = 0.1
 ```
 

@@ -128,8 +128,7 @@ def train_transformer(
                     "model_config": model_config,  # does not occupy much space, but useful so we do not accidentally load a different model config
                 },
                 (
-                    f"checkpoints/transformer_{epoch}.pth"
-                    if training_config.save_info
-                    else "checkpoints/transformer.pth"
+                    training_config.checkpoint_dir
+                    / training_config.checkpoint_save_filename.format(epoch=epoch)
                 ),
             )

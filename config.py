@@ -5,8 +5,6 @@ from pathlib import Path
 from typing import Optional
 import yaml
 
-CHECKPINTS_DIR = Path("checkpoints")
-
 
 def configs_from_yaml(
     yaml_path: Path,
@@ -14,18 +12,22 @@ def configs_from_yaml(
     with open(yaml_path, "r") as f:
         config = yaml.safe_load(f)
 
+    checkpoint_dir = config["training"].get("checkpoint_dir")
+    assert checkpoint_dir is not None, "checkpoint_dir must be provided in the yaml"
     # If no checkpoint path is provided in the yaml, get the latest checkpoint
     if (
-        "checkpoint_path" not in config["training"]
-        or config["training"]["checkpoint_path"] is None
-        or config["training"]["checkpoint_path"] == "latest"
+        "checkpoint_filename" not in config["training"]
+        or config["training"]["checkpoint_filename"] is None
+        or config["training"]["checkpoint_filename"] == "latest"
     ):
-        config["training"]["checkpoint_path"] = _get_latest_checkpoint_path()
+        config["training"]["checkpoint_filename"] = _get_latest_checkpoint_path(
+            checkpoint_dir
+        )
     return config["dataset"], config["model"], config["training"], config["eval"]
 
 
-def _get_latest_checkpoint_path() -> Optional[Path]:
-    dir = CHECKPINTS_DIR
+def _get_latest_checkpoint_path(base_path: str) -> Optional[Path]:
+    dir = Path(base_path)
     if not dir.exists():
         raise FileNotFoundError("No checkpoints directory found")
 
@@ -34,7 +36,10 @@ def _get_latest_checkpoint_path() -> Optional[Path]:
     if not checkpoints:
         return None
 
-    return max(checkpoints, key=lambda x: x.stat().st_ctime)
+    complete = max(checkpoints, key=lambda x: x.stat().st_ctime)
+
+    # only return the filename
+    return complete.name
 
 
 class BaseConfig:
@@ -94,16 +99,28 @@ class TrainingConfig(BaseConfig):
     b2: float = 0.98
     eps: float = 1e-9
     warmup_steps: int = 4000
-    checkpoint_path: Optional[Path] = _get_latest_checkpoint_path()
+    checkpoint_dir: Path = Path("checkpoints")
+    checkpoint_filename: Optional[str] = None
+    checkpoint_save_filename: str = "checkpoint_{epoch}.pth"
     save_freq: int = 1  # once per epoch
-    save_info: bool = False  # Save the epoch and iteration in the checkpoint
     label_smoothing: float = 0.1
+
+    @property
+    def checkpoint_path(self) -> Path:
+        self.checkpoint_dir = Path(self.checkpoint_dir)
+        return self.checkpoint_dir / self.checkpoint_filename
 
 
 @dataclass
 class EvalConfig(BaseConfig):
-    checkpoint_path: Optional[Path] = _get_latest_checkpoint_path()
+    checkpoint_dir: Path = Path("checkpoints")
+    checkpoint_filename: Optional[str] = None
     batch_size: int = 12
+
+    @property
+    def checkpoint_path(self) -> Path:
+        self.checkpoint_dir = Path(self.checkpoint_dir)
+        return self.checkpoint_dir / self.checkpoint_filename
 
 
 def get_config_and_parser(

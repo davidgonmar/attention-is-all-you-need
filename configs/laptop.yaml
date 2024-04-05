@@ -24,11 +24,13 @@ training:
   b2: 0.98
   eps: 0.0000000001 # 1e-9
   warmup_steps: 4000
-  checkpoint_path: "latest"
+  checkpoint_dir: "checkpoints/laptop"
+  checkpoint_filename: "latest"
+  checkpoint_save_filename: "transformer.pth"
   save_freq: 1
-  save_info: false
   label_smoothing: 0.1
 
 eval:
   batch_size: 128
-  checkpoint_path: "latest"
+  checkpoint_dir: "checkpoints/laptop"
+  checkpoint_filename: "latest"
