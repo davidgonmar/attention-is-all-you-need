@@ -2,10 +2,10 @@
 # I used this configuration file to train the model on my laptop with a RTX 2070 GPU
 
 dataset:
-  ds_name: opus_books
+  ds_name: wmt14
   src_lang: en
-  tgt_lang: es
-  split: 0.9
+  tgt_lang: de
+  split: -1 # Automatically handled
   seq_len: 50
 
 model:
@@ -27,13 +27,13 @@ training:
   b2: 0.98
   eps: 0.0000000001 # 1e-9
   warmup_steps: 4000
-  checkpoint_dir: "checkpoints/laptop"
+  checkpoint_dir: "checkpoints/laptop_wmt14"
   checkpoint_filename: "latest"
   checkpoint_save_filename: "transformer.pth"
-  save_freq: 1
+  save_freq: 10 # Save 10 times per epoch
   label_smoothing: 0.1
 
 eval:
   batch_size: 128
-  checkpoint_dir: "checkpoints/laptop"
+  checkpoint_dir: "checkpoints/laptop_wmt14"
   checkpoint_filename: "latest"

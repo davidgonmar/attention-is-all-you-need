@@ -14,26 +14,46 @@ def get_dataset(
     config: DatasetConfig,
 ) -> Tuple["TranslationDataset", "TranslationDataset"]:
     """
-    Returns a tuple of training and validation datasets
+    Returns a tuple of training and test datasets
 
     Args:
         config: loaded configuration
 
     Returns:
-        Tuple of training and validation datasets
+        Tuple of training and test datasets
     """
-    dataset = load_dataset(
-        config.ds_name, f"{config.src_lang}-{config.tgt_lang}", split="train"
-    )  # We'll manually split the dataset
+    try:
+        datasetdict = load_dataset(
+            config.ds_name, f"{config.src_lang}-{config.tgt_lang}", cache_dir="data"
+        )
+    except:  # noqa
+        datasetdict = load_dataset(
+            config.ds_name, f"{config.tgt_lang}-{config.src_lang}", cache_dir="data"
+        )
 
-    train_size = int(config.split * len(dataset))
-    valid_size = len(dataset) - train_size
-    train_ds, valid_ds = random_split(
-        dataset, [train_size, valid_size], generator=torch.Generator().manual_seed(42)
-    )  # so the dataset remains the same
-    return TranslationDataset(
-        train_ds, config.src_lang, config.tgt_lang, config.seq_len
-    ), TranslationDataset(valid_ds, config.src_lang, config.tgt_lang, config.seq_len)
+    # if it has a train and test split, we use those
+    if "train" in datasetdict.keys() and "test" in datasetdict.keys():
+        train_ds = datasetdict["train"]
+        test_ds = datasetdict["test"]
+        return TranslationDataset(
+            train_ds, config.src_lang, config.tgt_lang, config.seq_len
+        ), TranslationDataset(test_ds, config.src_lang, config.tgt_lang, config.seq_len)
+    # if it doesn't have a test split, we split it ourselves
+    else:
+        assert (
+            "train" in datasetdict.keys()
+        ), "Dataset must have a train split, got datasetdict: {datasetdict}"
+        dataset = datasetdict["train"]
+        train_size = int(config.split * len(dataset))
+        test_size = len(dataset) - train_size
+        train_ds, test_ds = random_split(
+            dataset,
+            [train_size, test_size],
+            generator=torch.Generator().manual_seed(42),
+        )  # so the dataset remains the same
+        return TranslationDataset(
+            train_ds, config.src_lang, config.tgt_lang, config.seq_len
+        ), TranslationDataset(test_ds, config.src_lang, config.tgt_lang, config.seq_len)
 
 
 def _get_sentences_iter(ds: Dataset, lang: str):

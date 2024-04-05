@@ -5,6 +5,7 @@ from config import ModelConfig, TrainingConfig
 from typing import Tuple
 from model import Transformer
 from torch.optim.lr_scheduler import LambdaLR
+from torch.utils.data import Dataset, DataLoader
 
 
 def get_optim_and_scheduler(
@@ -50,7 +51,7 @@ def get_padding_mask(seq: torch.Tensor, pad_token: int) -> torch.Tensor:
 
 def train_transformer(
     model: Transformer,
-    train_dl: torch.utils.data.DataLoader,
+    train_dataset: Dataset,
     device: torch.device,
     tokenizer: Tokenizer,
     model_config: ModelConfig,
@@ -59,33 +60,48 @@ def train_transformer(
     criterion = torch.nn.CrossEntropyLoss(
         ignore_index=tokenizer.token_to_id("<pad>"),
         reduction="mean",
-        label_smoothing=0.1,
+        label_smoothing=training_config.label_smoothing,
     )
 
     optimizer, scheduler = get_optim_and_scheduler(model, model_config, training_config)
-
+    train_dl = DataLoader(
+        train_dataset, batch_size=training_config.batch_size, shuffle=True
+    )
     start_epoch = 0
+    start_iteration = 0
     if training_config.checkpoint_path is not None:
         checkpoint = torch.load(training_config.checkpoint_path)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
-        start_epoch = (
-            checkpoint["epoch"] + 1
-        )  # for example, if we loaded epoch 10(assumed to be completed), we want to start from 11
+        start_epoch = checkpoint["epoch"]
+        start_iteration = checkpoint["iteration"] + 1
+        dl_len = len(train_dl)
+        if start_iteration >= dl_len - 1:
+            start_iteration = 0
+            start_epoch += 1
+
         print("Loaded checkpoint from", training_config.checkpoint_path)
         print(
             "info: saved epoch=",
             checkpoint["epoch"],
             "starting from epoch=",
             start_epoch,
+            "iteration=",
+            checkpoint["iteration"],
+            "starting from iteration=",
+            start_iteration,
         )
         print("info: lr=", optimizer.param_groups[0]["lr"])
         print("info: warmup_steps=", training_config.warmup_steps)
 
+    is_first_epoch_in_session = True
     for epoch in range(start_epoch, training_config.max_epochs):
         model.train()
         for i, elem in enumerate(train_dl):
+            if i < start_iteration and is_first_epoch_in_session:
+                print("Skipping iteration", i, end="\r", flush=True)
+                continue
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
@@ -117,18 +133,24 @@ def train_transformer(
             scheduler.step()
             optimizer.zero_grad()
 
-        if epoch % training_config.save_freq == 0:  # Save every epoch if save_freq is 1
-            print("Saving checkpoint... Epoch:", epoch)
-            torch.save(
-                {
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict(),
-                    "epoch": epoch,
-                    "model_config": model_config,  # does not occupy much space, but useful so we do not accidentally load a different model config
-                },
-                (
-                    training_config.checkpoint_dir
-                    / training_config.checkpoint_save_filename.format(epoch=epoch)
-                ),
-            )
+            # remember save_freq can be a decimal. For example, 10 means save 10 times per epoch
+            if (i % int(len(train_dl) / training_config.save_freq) == 0) or (
+                i == len(train_dl) - 1
+            ):
+                print("Saving checkpoint... Epoch:", epoch, " Iteration:", i)
+                torch.save(
+                    {
+                        "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "scheduler": scheduler.state_dict(),
+                        "epoch": epoch,
+                        "model_config": model_config,  # does not occupy much space, but useful so we do not accidentally load a different model config
+                        "iteration": i,
+                    },
+                    (
+                        training_config.checkpoint_dir
+                        / training_config.checkpoint_save_filename.format(epoch=epoch)
+                    ),
+                )
+
+        is_first_epoch_in_session = False

@@ -1,5 +1,4 @@
 from dataset import get_dataset
-from torch.utils.data import DataLoader
 from model import Transformer
 from config import get_config_and_parser
 import torch
@@ -18,7 +17,6 @@ def main():
     print("Training config:", training_config)
     print("Vocab size:", vocab_size)
     print("===========================================================")
-    train_dl = DataLoader(train_ds, batch_size=training_config.batch_size, shuffle=True)
     transformer = (
         Transformer.from_config(model_config, vocab_size, vocab_size)
         .load_from_checkpoint(training_config.checkpoint_path)
@@ -26,7 +24,7 @@ def main():
         .to(device)
     )
     train_transformer(
-        transformer, train_dl, device, train_ds.src_tok, model_config, training_config
+        transformer, train_ds, device, train_ds.src_tok, model_config, training_config
     )
 
 

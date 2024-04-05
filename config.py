@@ -79,7 +79,7 @@ class DatasetConfig(BaseConfig):
     ds_name: str = "opus_books"
     src_lang: str = "en"
     tgt_lang: str = "es"
-    split: int = 0.9
+    split: int = 0.9  # ignored if dataset has train and test splits already
     seq_len: int = 400
 
 
@@ -108,13 +108,17 @@ class TrainingConfig(BaseConfig):
     checkpoint_dir: Path = Path("checkpoints")
     checkpoint_filename: Optional[str] = None
     checkpoint_save_filename: str = "checkpoint_{epoch}.pth"
-    save_freq: int = 1  # once per epoch
+    save_freq: float = 1.0  # once per epoch by default
     label_smoothing: float = 0.1
 
     @property
     def checkpoint_path(self) -> Path:
         self.checkpoint_dir = Path(self.checkpoint_dir)
-        return self.checkpoint_dir / self.checkpoint_filename
+        return (
+            self.checkpoint_dir / self.checkpoint_filename
+            if self.checkpoint_filename is not None
+            else None
+        )
 
 
 @dataclass
@@ -126,7 +130,11 @@ class EvalConfig(BaseConfig):
     @property
     def checkpoint_path(self) -> Path:
         self.checkpoint_dir = Path(self.checkpoint_dir)
-        return self.checkpoint_dir / self.checkpoint_filename
+        return (
+            self.checkpoint_dir / self.checkpoint_filename
+            if self.checkpoint_filename is not None
+            else None
+        )
 
 
 def get_config_and_parser(
