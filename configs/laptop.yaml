@@ -28,3 +28,7 @@ training:
   save_freq: 1
   save_info: false
   label_smoothing: 0.1
+
+eval:
+  batch_size: 128
+  checkpoint_path: "latest"
