@@ -17,6 +17,8 @@ model:
   dropout: 0.1
   n_encoder_layers: 6
   n_decoder_layers: 6
+  src_vocab_size: 32000
+  tgt_vocab_size: 32000
 
 training:
   max_epochs: 500

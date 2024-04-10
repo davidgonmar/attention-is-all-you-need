@@ -1,17 +1,18 @@
 from datasets import load_dataset, Dataset
 from tokenizers import Tokenizer
-from tokenizers.models import WordLevel
-from tokenizers.trainers import WordLevelTrainer
+from tokenizers.models import WordPiece
+from tokenizers.trainers import WordPieceTrainer
 from tokenizers.pre_tokenizers import Whitespace
 from pathlib import Path
 from torch.utils.data import random_split
 from typing import Tuple
 import torch
-from config import DatasetConfig
+from config import DatasetConfig, ModelConfig
 
 
 def get_dataset(
     config: DatasetConfig,
+    model_config: ModelConfig,
 ) -> Tuple["TranslationDataset", "TranslationDataset"]:
     """
     Returns a tuple of training and test datasets
@@ -36,8 +37,20 @@ def get_dataset(
         train_ds = datasetdict["train"]
         test_ds = datasetdict["test"]
         return TranslationDataset(
-            train_ds, config.src_lang, config.tgt_lang, config.seq_len
-        ), TranslationDataset(test_ds, config.src_lang, config.tgt_lang, config.seq_len)
+            train_ds,
+            config.src_lang,
+            config.tgt_lang,
+            config.seq_len,
+            model_config.src_vocab_size,
+            model_config.tgt_vocab_size,
+        ), TranslationDataset(
+            test_ds,
+            config.src_lang,
+            config.tgt_lang,
+            config.seq_len,
+            model_config.src_vocab_size,
+            model_config.tgt_vocab_size,
+        )
     # if it doesn't have a test split, we split it ourselves
     else:
         assert (
@@ -52,8 +65,20 @@ def get_dataset(
             generator=torch.Generator().manual_seed(42),
         )  # so the dataset remains the same
         return TranslationDataset(
-            train_ds, config.src_lang, config.tgt_lang, config.seq_len
-        ), TranslationDataset(test_ds, config.src_lang, config.tgt_lang, config.seq_len)
+            train_ds,
+            config.src_lang,
+            config.tgt_lang,
+            config.seq_len,
+            model_config.src_vocab_size,
+            model_config.tgt_vocab_size,
+        ), TranslationDataset(
+            test_ds,
+            config.src_lang,
+            config.tgt_lang,
+            config.seq_len,
+            model_config.src_vocab_size,
+            model_config.tgt_vocab_size,
+        )
 
 
 def _get_sentences_iter(ds: Dataset, lang: str):
@@ -61,12 +86,14 @@ def _get_sentences_iter(ds: Dataset, lang: str):
         yield item["translation"][lang]
 
 
-def _get_tokenizer(ds: Dataset, lang: str) -> Tokenizer:
+def _get_tokenizer(ds: Dataset, lang: str, vocab_size):
     cached_path = Path("data") / f"ds_{lang}.json"
     if not Path.exists(cached_path):
-        tok = Tokenizer(WordLevel(unk_token="<unk>"))
+        tok = Tokenizer(WordPiece(unk_token="<unk>"))
         tok.pre_tokenizer = Whitespace()
-        trainer = WordLevelTrainer(special_tokens=["<unk>", "<s>", "</s>", "<pad>"])
+        trainer = WordPieceTrainer(
+            special_tokens=["<unk>", "<s>", "</s>", "<pad>"], vocab_size=vocab_size
+        )
         tok.train_from_iterator(_get_sentences_iter(ds, lang), trainer=trainer)
         tok.save(str(cached_path))
         return tok
@@ -75,13 +102,21 @@ def _get_tokenizer(ds: Dataset, lang: str) -> Tokenizer:
 
 
 class TranslationDataset(torch.utils.data.Dataset):
-    def __init__(self, ds: Dataset, src_lang: str, tgt_lang: str, seq_len: int = 128):
+    def __init__(
+        self,
+        ds: Dataset,
+        src_lang: str,
+        tgt_lang: str,
+        seq_len: int,
+        src_vocab_size: int,
+        tgt_vocab_size: int,
+    ):
         self.raw_ds = ds
         self.src_lang = src_lang
         self.tgt_lang = tgt_lang
 
-        self.src_tok = _get_tokenizer(self.raw_ds, src_lang)
-        self.tgt_tok = _get_tokenizer(self.raw_ds, tgt_lang)
+        self.src_tok = _get_tokenizer(self.raw_ds, src_lang, src_vocab_size)
+        self.tgt_tok = _get_tokenizer(self.raw_ds, tgt_lang, tgt_vocab_size)
 
         self.src_tok.enable_truncation(max_length=seq_len)
         self.tgt_tok.enable_truncation(max_length=seq_len)

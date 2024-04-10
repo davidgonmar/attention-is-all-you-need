@@ -28,7 +28,9 @@ class TestDataset:
         ],
     )
     def test_get_dataset(self, config):
-        train_ds, valid_ds = get_dataset(config)
+        train_ds, valid_ds = get_dataset(
+            config, {"src_vocab_size": 100, "tgt_vocab_size": 100}
+        )
         assert len(train_ds) + len(valid_ds) == len(train_ds.raw_ds)
         assert len(train_ds) == int(config.split * len(train_ds.raw_ds))
         assert len(valid_ds) == len(train_ds.raw_ds) - len(train_ds)

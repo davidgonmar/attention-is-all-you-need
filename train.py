@@ -7,7 +7,7 @@ from training import train_transformer
 
 def main():
     ds_config, model_config, training_config, _, _ = get_config_and_parser(update=True)
-    train_ds, valid_ds = get_dataset(ds_config)
+    train_ds, valid_ds = get_dataset(ds_config, model_config)
     vocab_size = train_ds.src_tok.get_vocab_size()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("============================INFO============================")

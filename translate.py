@@ -15,7 +15,7 @@ if __name__ == "__main__":
     ) = get_config_and_parser(update=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    train_ds, _ = get_dataset(ds_config)
+    train_ds, _ = get_dataset(ds_config, model_config)
     vocab_size = train_ds.src_tok.get_vocab_size()
 
     transformer = (

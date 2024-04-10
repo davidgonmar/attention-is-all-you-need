@@ -17,11 +17,13 @@ model:
   dropout: 0.1
   n_encoder_layers: 6
   n_decoder_layers: 6
+  src_vocab_size: 32000
+  tgt_vocab_size: 32000
 
 training:
   max_epochs: 500
   batch_size: 32
-  lr: 0.0001
+  lr: 0.0001 # 1e-4
   use_scheduler: false
   b1: 0.9
   b2: 0.98
