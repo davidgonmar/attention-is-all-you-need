@@ -86,7 +86,7 @@ def _get_sentences_iter(ds: Dataset, lang: str):
         yield item["translation"][lang]
 
 
-def _get_tokenizer(ds: Dataset, lang: str, vocab_size):
+def get_tokenizer(ds: Dataset, lang: str, vocab_size):
     cached_path = Path("data") / f"ds_{lang}.json"
     if not Path.exists(cached_path):
         tok = Tokenizer(WordPiece(unk_token="<unk>"))
@@ -115,8 +115,8 @@ class TranslationDataset(torch.utils.data.Dataset):
         self.src_lang = src_lang
         self.tgt_lang = tgt_lang
 
-        self.src_tok = _get_tokenizer(self.raw_ds, src_lang, src_vocab_size)
-        self.tgt_tok = _get_tokenizer(self.raw_ds, tgt_lang, tgt_vocab_size)
+        self.src_tok = get_tokenizer(self.raw_ds, src_lang, src_vocab_size)
+        self.tgt_tok = get_tokenizer(self.raw_ds, tgt_lang, tgt_vocab_size)
 
         self.src_tok.enable_truncation(max_length=seq_len)
         self.tgt_tok.enable_truncation(max_length=seq_len)

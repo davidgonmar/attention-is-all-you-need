@@ -53,13 +53,23 @@ class PositionalEncoding(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads: int, d_model: int, d_k: int, d_v: int, causal: bool):
+    def __init__(
+        self,
+        num_heads: int,
+        d_model: int,
+        d_k: int,
+        d_v: int,
+        causal: bool,
+        save_attn_scores_to_visualize=True,
+    ):
         super().__init__()
         self.num_heads = num_heads
         self.d_model = d_model
         self.causal = causal
         self.d_k = d_k
         self.d_v = d_v
+        self.save_attn_scores_to_visualize = save_attn_scores_to_visualize
+        self.attn_scores = None
 
         assert d_model % num_heads == 0, "d_model should be divisible by num_heads"
 
@@ -159,7 +169,10 @@ class MultiHeadAttention(nn.Module):
                 x = x.masked_fill(
                     mask == 0, -1e9
                 )  # (batch_size, num_heads, len_q, len_k)
-        return F.softmax(x, dim=-1) @ V  # (batch_size, num_heads, len_q, d_v)
+        x = F.softmax(x, dim=-1)  # (batch_size, num_heads, len_q, len_k)
+        if self.save_attn_scores_to_visualize:
+            self.attn_scores = x
+        return x @ V
 
 
 class EncoderLayer(nn.Module):
@@ -324,6 +337,8 @@ class Transformer(nn.Module):
         n_decoder_layers: int,
     ):
         super().__init__()
+        self.src_vocab_size = src_vocab_size
+        self.tgt_vocab_size = tgt_vocab_size
         self.config = ModelConfig(
             num_heads=num_heads,
             d_model=d_model,
@@ -333,6 +348,8 @@ class Transformer(nn.Module):
             n_encoder_layers=n_encoder_layers,
             n_decoder_layers=n_decoder_layers,
             dropout=dropout,
+            src_vocab_size=src_vocab_size,
+            tgt_vocab_size=tgt_vocab_size,
         )
         self.encoder = Encoder(
             num_heads=num_heads,
@@ -390,7 +407,7 @@ class Transformer(nn.Module):
 
     @staticmethod
     def from_config(
-        config: ModelConfig, src_vocab_size: int, tgt_vocab_size: int
+        config: ModelConfig,
     ) -> "Transformer":
         return Transformer(
             num_heads=config.num_heads,
@@ -398,8 +415,8 @@ class Transformer(nn.Module):
             d_k=config.d_k,
             d_v=config.d_v,
             d_ff=config.d_ff,
-            src_vocab_size=src_vocab_size,
-            tgt_vocab_size=tgt_vocab_size,
+            src_vocab_size=config.src_vocab_size,
+            tgt_vocab_size=config.tgt_vocab_size,
             dropout=config.dropout,
             n_encoder_layers=config.n_encoder_layers,
             n_decoder_layers=config.n_decoder_layers,

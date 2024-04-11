@@ -12,16 +12,17 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     _, test_ds = get_dataset(ds_config, model_config)
-    vocab_size = test_ds.src_tok.get_vocab_size()
     dl = torch.utils.data.DataLoader(
         test_ds, batch_size=eval_config.batch_size, shuffle=False
     )
     transformer = (
-        Transformer.from_config(model_config, vocab_size, vocab_size)
+        Transformer.from_config(model_config)
         .load_from_checkpoint(tr_config.checkpoint_path)
         .to_parallel()
         .to(device)
     )
+
+    vocab_size = transformer.src_vocab_size
 
     avg_loss = 0
     avg_bleu = 0

@@ -93,6 +93,8 @@ class ModelConfig(BaseConfig):
     dropout: float = 0.1
     n_encoder_layers: int = 6
     n_decoder_layers: int = 6
+    src_vocab_size: int = 10000
+    tgt_vocab_size: int = 10000
 
 
 @dataclass
@@ -135,6 +137,27 @@ class EvalConfig(BaseConfig):
             if self.checkpoint_filename is not None
             else None
         )
+
+
+def get_config_no_parser(config_path: Optional[Path] = None):
+    ds_config = DatasetConfig()
+    model_config = ModelConfig()
+    training_config = TrainingConfig()
+    eval_config = EvalConfig()
+
+    if config_path is not None:
+        (
+            ds_config_dict,
+            model_config_dict,
+            training_config_dict,
+            eval_config_dict,
+        ) = configs_from_yaml(config_path)
+        ds_config.load_from_dict(ds_config_dict)
+        model_config.load_from_dict(model_config_dict)
+        training_config.load_from_dict(training_config_dict)
+        eval_config.load_from_dict(eval_config_dict)
+
+    return ds_config, model_config, training_config, eval_config
 
 
 def get_config_and_parser(
