@@ -23,7 +23,7 @@ model:
 training:
   max_global_steps: 100000
   batch_size: 120 # 50 * 120 == 6000 tokens per GPU. 6000 * 4 == 24000 tokens per batch across all GPUs
-  lr: 0.0001
+  lr: 1
   use_scheduler: true
   b1: 0.9
   b2: 0.98

@@ -1,6 +1,6 @@
 from dataset import get_dataset
 from model import Transformer
-from training import get_padding_mask
+from train import get_padding_mask
 import torch
 from config import get_config_and_parser
 
