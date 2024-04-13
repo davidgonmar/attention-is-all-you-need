@@ -276,7 +276,7 @@ class DecoderLayer(nn.Module):
         out2 = self.multi_head_attention(
             input, encoder_output, encoder_output, pad_attn_mask_src
         )  # we use pad_attn_mask_src because we want to mask the padding in the encoder output
-        out2 = self.layer_norm1(self.dropout(out2) + out1)  # residual connection
+        out2 = self.layer_norm2(self.dropout(out2) + out1)  # residual connection
 
         out3 = self.position_wise_feed_forward(out2)
         out3 = self.layer_norm3(self.dropout(out3) + out2)  # residual connection
@@ -422,9 +422,6 @@ class Transformer(nn.Module):
             n_decoder_layers=config.n_decoder_layers,
         )
 
-    def to_parallel(self) -> nn.DataParallel["Transformer"]:
-        return get_parallel_model(self)
-
     def load_from_checkpoint(self, checkpoint_path: str) -> "Transformer":
         if not checkpoint_path:
             print("No checkpoint path provided, starting from scratch")
@@ -442,21 +439,6 @@ class Transformer(nn.Module):
         except FileNotFoundError:
             print("Model not found at", checkpoint_path, "Starting from scratch")
         return self
-
-
-def get_parallel_model(model: nn.Module) -> nn.Module:
-    """
-    This function will return a parallel model that will use the GPUs specified in device_ids
-    Args:
-        model: the model to parallelize
-        device_ids: list of device ids to use
-    """
-    n_devices = torch.cuda.device_count()
-    if n_devices == 0 or n_devices == 1:
-        print("Not using any GPUs" if n_devices == 0 else "Using 1 GPU")
-        return model
-    print(f"Using {n_devices} GPUs")
-    return nn.DataParallel(model)
 
 
 """multi_head_attention = MultiHeadAttention(num_heads=8, d_model=512, d_k=64, d_v=64)

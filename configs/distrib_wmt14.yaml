@@ -1,5 +1,5 @@
 # Description: Configuration file for training a transformer model on the OPUS Books dataset
-# I used this configuration file to train the model on my laptop with a RTX 2070 GPU
+# I used this configuration file to train the model on a machine with 4 NVIDIA 3090 GPUs
 
 dataset:
   ds_name: wmt14
@@ -22,14 +22,14 @@ model:
 
 training:
   max_global_steps: 100000
-  batch_size: 64
-  lr: 0.0005 # 1e-4
-  use_scheduler: false
+  batch_size: 120 # 50 * 120 == 6000 tokens per GPU. 6000 * 4 == 24000 tokens per batch across all GPUs
+  lr: 0.0001
+  use_scheduler: true
   b1: 0.9
   b2: 0.98
   eps: 0.0000000001 # 1e-9
   warmup_steps: 4000
-  checkpoint_dir: "checkpoints/laptop_wmt14"
+  checkpoint_dir: "checkpoints/distrib_wmt14"
   checkpoint_filename: "latest"
   checkpoint_save_filename: "checkpoint.pth"
   save_freq: 1000 # each 1000 steps
@@ -37,5 +37,5 @@ training:
 
 eval:
   batch_size: 128
-  checkpoint_dir: "checkpoints/laptop_wmt14"
+  checkpoint_dir: "checkpoints/distrib_wmt14"
   checkpoint_filename: "latest"

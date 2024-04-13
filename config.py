@@ -99,7 +99,7 @@ class ModelConfig(BaseConfig):
 
 @dataclass
 class TrainingConfig(BaseConfig):
-    max_epochs: int = 100
+    max_global_steps: int = 100000
     batch_size: int = 12
     lr: float = 1.0  # Learning rate base, will be scaled by scheduler
     use_scheduler: bool = True

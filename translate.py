@@ -21,7 +21,6 @@ if __name__ == "__main__":
     transformer = (
         Transformer.from_config(model_config, vocab_size, vocab_size)
         .load_from_checkpoint(tr_config.checkpoint_path)
-        .to_parallel()
         .to(device)
     )
 

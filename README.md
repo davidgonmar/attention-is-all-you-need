@@ -53,6 +53,11 @@ class TrainingConfig(BaseConfig):
 
 To train the model, run the `train.py` script. The script will download the dataset, preprocess it, and train the model. The model will be saved in the `checkpoints` directory.
 
+```
+torchrun --nproc_per_node 1 train.py --config configs/laptop_wmt14.yaml
+torchrun --nproc_per_node 4 train.py --config configs/distrib_wmt14.yaml
+```
+
 ### Inference
 
 To generate translations, run the `translate.py` script. The script will load the model from the `checkpoints` directory and generate translations for the test set. It is a simple script where the user can input a sentence in the source language and get the translation in the target language.

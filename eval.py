@@ -2,7 +2,7 @@ import torch
 from dataset import get_dataset
 from model import Transformer
 from config import get_config_and_parser
-from training import get_padding_mask
+from train import get_padding_mask
 from torchtext.data.metrics import bleu_score
 
 if __name__ == "__main__":
@@ -18,7 +18,6 @@ if __name__ == "__main__":
     transformer = (
         Transformer.from_config(model_config)
         .load_from_checkpoint(tr_config.checkpoint_path)
-        .to_parallel()
         .to(device)
     )
 
