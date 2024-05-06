@@ -20,6 +20,7 @@ if __name__ == "__main__":
         .load_from_checkpoint(tr_config.checkpoint_path)
         .to(device)
     )
+    transformer = torch.compile(transformer)
     vocab_size = transformer.src_vocab_size
 
     avg_loss = 0

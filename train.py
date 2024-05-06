@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 import os
 from torch.distributed import init_process_group
 from torch.utils.data.distributed import DistributedSampler
+import time
 
 
 def get_optim_and_scheduler(
@@ -95,6 +96,7 @@ def train_transformer(
     while True:
         model.train()
         for _, elem in enumerate(train_dl):
+            start = time.time()
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
@@ -110,12 +112,6 @@ def train_transformer(
                 out.view(-1, out.size(-1)), labels.view(-1)
             )  # flatten the output and target tensors
 
-            print(
-                "global_step:",
-                global_step,
-                "loss:",
-                loss.item(),
-            )
             loss.backward()
 
             optimizer.step()
@@ -123,6 +119,12 @@ def train_transformer(
             optimizer.zero_grad()
 
             if global_rank == 0:
+                print(
+                    "global_step:",
+                    global_step,
+                    "loss:",
+                    loss.item(),
+                )
                 # save each `training_config.save_freq` steps
                 if (global_step % (training_config.save_freq)) == 0:
                     print("Saving checkpoint... global_step:", global_step)
@@ -163,7 +165,10 @@ def main():
     torch.cuda.set_device(local_rank)
     ###############################################
 
-    ds_config, model_config, training_config, _, _ = get_config_and_parser(update=True)
+    ds_config, model_config, training_config, _, parser = get_config_and_parser(
+        update=True,
+        extra_args=[{"args": ["--nocompile"], "kwargs": {"action": "store_true"}}],
+    )
     train_ds, valid_ds = get_dataset(ds_config, model_config)
     if not torch.cuda.is_available():
         raise ValueError("CUDA is not available")
@@ -191,6 +196,9 @@ def main():
         device_ids=[local_rank],
         output_device=local_rank,
     )
+    if not parser.parse_args().nocompile:
+        transformer = torch.compile(transformer)
+
     train_transformer(
         transformer,
         train_ds,

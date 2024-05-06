@@ -161,12 +161,14 @@ def get_config_no_parser(config_path: Optional[Path] = None):
 
 
 def get_config_and_parser(
-    existing_parser: Optional[ArgumentParser] = None, update: bool = True
+    existing_parser: Optional[ArgumentParser] = None, update: bool = True, extra_args=[]
 ) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, ArgumentParser]:
     parser = existing_parser or ArgumentParser(conflict_handler="resolve")
     parser.add_argument(
         "--config", type=Path, default=None
     )  # allows default config file to be passed (will be overridden)
+    for arg in extra_args:
+        parser.add_argument(*arg["args"], **arg["kwargs"])
     ds_config = DatasetConfig()
     model_config = ModelConfig()
     training_config = TrainingConfig()
