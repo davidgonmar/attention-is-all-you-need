@@ -11,7 +11,6 @@ from torch.utils.data import Dataset, DataLoader
 import os
 from torch.distributed import init_process_group
 from torch.utils.data.distributed import DistributedSampler
-import time
 
 
 def get_optim_and_scheduler(
@@ -96,7 +95,6 @@ def train_transformer(
     while True:
         model.train()
         for _, elem in enumerate(train_dl):
-            start = time.time()
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
@@ -107,10 +105,11 @@ def train_transformer(
                 decoder_input, tokenizer.token_to_id("<pad>")
             ).to(device)
 
-            out = model(encoder_input, decoder_input, src_mask, tgt_mask)
-            loss = criterion(
-                out.view(-1, out.size(-1)), labels.view(-1)
-            )  # flatten the output and target tensors
+            with torch.cuda.amp.autocast():
+                out = model(encoder_input, decoder_input, src_mask, tgt_mask)
+                loss = criterion(
+                    out.view(-1, out.size(-1)), labels.view(-1)
+                )  # flatten the output and target tensors
 
             loss.backward()
 
