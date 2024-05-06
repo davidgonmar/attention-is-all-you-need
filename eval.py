@@ -20,7 +20,6 @@ if __name__ == "__main__":
         .load_from_checkpoint(tr_config.checkpoint_path)
         .to(device)
     )
-
     vocab_size = transformer.src_vocab_size
 
     avg_loss = 0

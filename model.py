@@ -1,9 +1,12 @@
+from typing import Optional
 import torch
 from torch import Tensor
 from torch.nn import functional as F
 from torch import nn
 
 from config import ModelConfig
+
+USE_TORCH_SDPA = True
 
 
 class PositionWiseFeedForward(nn.Module):
@@ -132,7 +135,7 @@ class MultiHeadAttention(nn.Module):
         return self.W_o(out)
 
     def _scaled_dot_product_attention(
-        self, Q: Tensor, K: Tensor, V: Tensor, pad_attn_mask
+        self, Q: Tensor, K: Tensor, V: Tensor, pad_attn_mask: Optional[Tensor]
     ) -> Tensor:
         """
         This is equivalent to separately computing the attention for each head.
@@ -141,35 +144,42 @@ class MultiHeadAttention(nn.Module):
             K: Key matrix with shape (batch_size, num_heads, len_k, d_k)
             V: Value matrix with shape (batch_size, num_heads, len_v = len_k, d_v)
         """
-        x = (
-            Q @ K.transpose(-2, -1)
-        ) / self.d_k**0.5  # (batch_size, num_heads, len_q, len_k)
-        # len_v = len_k !!!
+
         mask = pad_attn_mask
         if self.causal:
-            # print("before masking: ", x)
-            # Apply masking, will be broadcasted to shape (batch_size, num_heads, len_q, len_k)
-            # Basically, create a matrix with 1s below and in the diagonal, 0s above
-            # Then, mask where mask == 0 with -inf
-            # So basically we set the values above the diagonal to -inf
-            # When softmax is applied, these values will become 0
             causal_mask = (
-                torch.tril(torch.ones(x.size(-2), x.size(-1)), diagonal=0)
-                .view(1, 1, x.size(-2), x.size(-1))
-                .to(x.device)  # (1, 1, len_q, len_k)
+                torch.tril(torch.ones(Q.size(-2), K.size(-2)), diagonal=0)
+                .unsqueeze(0)
+                .unsqueeze(0)
+                .to(Q.device)  # (1, 1, len_q, len_k)
             )
             mask = (
                 mask.bool() & causal_mask.bool()
                 if mask is not None
                 else causal_mask.bool()
             )
-            x = x.masked_fill(mask == 0, -1e9)  # (batch_size, num_heads, len_q, len_k)
-
         else:
             if mask is not None:
-                x = x.masked_fill(
-                    mask == 0, -1e9
-                )  # (batch_size, num_heads, len_q, len_k)
+                mask = mask.bool()
+
+        if USE_TORCH_SDPA:
+            # manually pass the 'fused' mask
+            return torch.nn.functional.scaled_dot_product_attention(
+                Q,
+                K,
+                V,
+                mask,
+                dropout_p=0.0,
+                is_causal=False,
+                scale=1.0 / self.d_k**0.5,
+            )
+
+        x = (Q @ K.transpose(-2, -1)) / (
+            self.d_k**0.5
+        )  # (batch_size, num_heads, len_q, len_k)
+        # len_v = len_k !!!
+        if mask is not None:
+            x = x.masked_fill(mask == 0, float("-inf"))
         x = F.softmax(x, dim=-1)  # (batch_size, num_heads, len_q, len_k)
         if self.save_attn_scores_to_visualize:
             self.attn_scores = x
