@@ -26,6 +26,7 @@ if __name__ == "__main__":
     avg_loss = 0
     avg_bleu = 0
     with torch.no_grad():
+        transformer.eval()
         for i, elem in enumerate(dl):
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
