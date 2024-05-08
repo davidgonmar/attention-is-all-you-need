@@ -22,7 +22,7 @@ model:
 
 training:
   max_global_steps: 100000
-  batch_size: 64
+  batch_size: 40
   lr: 0.0005 # 1e-4
   use_scheduler: false
   b1: 0.9

@@ -74,3 +74,23 @@ To generate translations, run the `translate.py` script. The script will load th
       primaryClass={cs.CL}
 }
 ```
+
+### Usage
+
+1. Train the tokenizer
+
+```bash
+    python train_tokenizer.py --config configs/distrib_wmt14.yaml
+```
+
+2. Preprocess the dataset (pretokenize it)
+
+```bash
+    python preprocess_data.py --config configs/distrib_wmt14.yaml
+```
+
+3. Run the training script
+
+```bash
+    torchrun --nproc_per_node 4 train.py --config configs/distrib_wmt14.yaml
+```

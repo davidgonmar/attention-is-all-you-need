@@ -1,8 +1,7 @@
-from dataset import get_dataset
+from dataset import retrieve_processed_dataset, collate_fn
 from model import Transformer
 from config import get_config_and_parser
 import torch
-from tokenizers import Tokenizer
 import torch.nn as nn
 from config import ModelConfig, TrainingConfig
 from typing import Tuple
@@ -11,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 import os
 from torch.distributed import init_process_group
 from torch.utils.data.distributed import DistributedSampler
+from tokenizer import get_tokenizer, SpecialTokens
 
 
 def get_optim_and_scheduler(
@@ -58,13 +58,14 @@ def train_transformer(
     model: Transformer,
     train_dataset: Dataset,
     device: torch.device,
-    tokenizer: Tokenizer,
+    pad_id: int,
     model_config: ModelConfig,
     training_config: TrainingConfig,
     global_rank: int = 0,
 ) -> None:
+    # only support cuda
     criterion = torch.nn.CrossEntropyLoss(
-        ignore_index=tokenizer.token_to_id("<pad>"),
+        ignore_index=pad_id,
         reduction="mean",
         label_smoothing=training_config.label_smoothing,
     )
@@ -75,6 +76,7 @@ def train_transformer(
         batch_size=training_config.batch_size,  # per GPU
         shuffle=False,
         sampler=DistributedSampler(train_dataset, shuffle=True),
+        collate_fn=lambda x: collate_fn(x, pad_id),
     )
     global_step = 0
     if training_config.checkpoint_path is not None:
@@ -92,18 +94,16 @@ def train_transformer(
         )
         print("info: lr=", optimizer.param_groups[0]["lr"])
         print("info: warmup_steps=", training_config.warmup_steps)
+    model.to(device)
     while True:
         model.train()
         for _, elem in enumerate(train_dl):
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
-            src_mask = get_padding_mask(
-                encoder_input, tokenizer.token_to_id("<pad>")
-            ).to(device)
-            tgt_mask = get_padding_mask(
-                decoder_input, tokenizer.token_to_id("<pad>")
-            ).to(device)
+            shapes = encoder_input.shape, decoder_input.shape, labels.shape
+            src_mask = get_padding_mask(encoder_input, pad_id).to(device)
+            tgt_mask = get_padding_mask(decoder_input, pad_id).to(device)
 
             with torch.cuda.amp.autocast():
                 out = model(encoder_input, decoder_input, src_mask, tgt_mask)
@@ -123,6 +123,8 @@ def train_transformer(
                     global_step,
                     "loss:",
                     loss.item(),
+                    "shapes:",
+                    shapes,
                 )
                 # save each `training_config.save_freq` steps
                 if (global_step % (training_config.save_freq)) == 0:
@@ -168,7 +170,8 @@ def main():
         update=True,
         extra_args=[{"args": ["--nocompile"], "kwargs": {"action": "store_true"}}],
     )
-    train_ds, valid_ds = get_dataset(ds_config, model_config)
+    dsdict = retrieve_processed_dataset()
+    train_ds = dsdict["train"]
     if not torch.cuda.is_available():
         raise ValueError("CUDA is not available")
     device = torch.device("cuda")
@@ -196,13 +199,16 @@ def main():
         output_device=local_rank,
     )
     if not parser.parse_args().nocompile:
-        transformer = torch.compile(transformer)
-
+        transformer = torch.compile(
+            transformer, dynamic=True
+        )  # we need dynamic because we pass different sequence lengths
+    tokenizer_tgt = get_tokenizer(ds_config.tgt_lang)
+    pad_id = tokenizer_tgt.token_to_id(SpecialTokens.PAD.value)
     train_transformer(
         transformer,
         train_ds,
         device,
-        train_ds.src_tok,
+        pad_id,
         model_config,
         training_config,
         global_rank,
