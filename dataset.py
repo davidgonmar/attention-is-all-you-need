@@ -105,6 +105,11 @@ class CustomDistributedSampler(Sampler):
         return len(self.batches_dict[f"gpu_{self.rank}"])
 
 
+import numpy as np
+from datasets import Dataset, DatasetDict
+import torch
+from torch.utils.data import random_split
+
 def preprocess(
     ds: Dataset | DatasetDict,
     ds_config: DatasetConfig,
@@ -114,7 +119,6 @@ def preprocess(
     """
     Given a dataset, pretokenizes it and stores it at 'save_path'.
     """
-
     def build(item):
         # Padding and truncation will be done manually in the collate function
         # Here we just pretokenize the text:
@@ -125,14 +129,14 @@ def preprocess(
         src = tokenizer_src.encode(
             BOS + item["translation"][ds_config.src_lang] + EOS
         ).ids
-        tgt_shifted = tokenizer_tgt.encode(
-            BOS + item["translation"][ds_config.tgt_lang]
+        tgt = tokenizer_tgt.encode(
+            BOS + item["translation"][ds_config.tgt_lang] + EOS
         ).ids
-        tgt_labels = tokenizer_tgt.encode(
-            item["translation"][ds_config.tgt_lang] + EOS
-        ).ids
+        tgt_shifted = tgt[:-1]
+        tgt_labels = tgt[1:]
+        combined_length = len(src) + len(tgt)
 
-        return {"src": src, "tgt_shifted": tgt_shifted, "tgt_labels": tgt_labels}
+        return {"src": src, "tgt_shifted": tgt_shifted, "tgt_labels": tgt_labels, "combined_length": combined_length}
 
     # 1. Split the dataset, manually if it doesn't have a test split or using the existing one
     if "train" in ds.keys() and "test" in ds.keys():
@@ -155,27 +159,16 @@ def preprocess(
     test_ds = test_ds.map(build)
 
     # 3. Order by length for better padding utilization
-    # use pandas since huggingface datasets can't be sorted with a lambda
-    train_ds_df = pd.DataFrame(train_ds)
-    train_ds_df["combined_length"] = train_ds_df.apply(
-        lambda x: len(x["src"]) + len(x["tgt_shifted"]), axis=1
-    )
-    train_ds_df = train_ds_df.sort_values(by="combined_length")
-    # delete the combined_length column
-    train_ds_df = train_ds_df.drop(columns=["combined_length"])
+    train_ds.sort("combined_length")
+    test_ds.sort("combined_length")
 
-    test_ds_df = pd.DataFrame(test_ds)
-    test_ds_df["combined_length"] = test_ds_df.apply(
-        lambda x: len(x["src"]) + len(x["tgt_shifted"]), axis=1
-    )
-    test_ds_df = test_ds_df.sort_values(by="combined_length")
-    # delete the combined_length column
-    test_ds_df = test_ds_df.drop(columns=["combined_length"])
-
-    train_ds = Dataset.from_pandas(train_ds_df)
-    test_ds = Dataset.from_pandas(test_ds_df)
-
+    # 4. We don't want the combined_length attribute anymore!
+    colnames = ["src", "tgt_labels", "tgt_shifted"]
+    train_ds = train_ds.select_columns(colnames)
+    test_ds = test_ds.select_columns(colnames)
+    
     return DatasetDict(train=train_ds, test=test_ds)
+
 
 
 def organize_batches(ds: Dataset | DatasetDict, num_gpus: int, n_tokens_per_gpu: int):

@@ -382,11 +382,11 @@ class Transformer(nn.Module):
         )
         self.input_embedder = InputEmbedder(d_model=d_model, vocab_size=src_vocab_size)
         self.positional_encoder = PositionalEncoding(
-            d_model=d_model, seq_len=1000, dropout=dropout
+            d_model=d_model, seq_len=3000, dropout=dropout
         )
         self.output_embedder = InputEmbedder(d_model=d_model, vocab_size=tgt_vocab_size)
         self.positional_decoder = PositionalEncoding(
-            d_model=d_model, seq_len=1000, dropout=dropout
+            d_model=d_model, seq_len=3000, dropout=dropout
         )
         self.linear = nn.Linear(d_model, tgt_vocab_size)
         self.dropout = nn.Dropout(dropout)

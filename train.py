@@ -97,7 +97,6 @@ def train_transformer(
         )
         print("info: lr=", optimizer.param_groups[0]["lr"])
         print("info: warmup_steps=", training_config.warmup_steps)
-    model.to(device)
     while True:
         model.train()
         for _, elem in enumerate(train_dl):
@@ -107,10 +106,8 @@ def train_transformer(
             labels = elem["tgt_labels"].to(device)
             src_mask = get_padding_mask(encoder_input, pad_id).to(device)
             tgt_mask = get_padding_mask(decoder_input, pad_id).to(device)
-
-            with torch.cuda.amp.autocast():
-                out = model(encoder_input, decoder_input, src_mask, tgt_mask)
-                loss = criterion(
+            out = model(encoder_input, decoder_input, src_mask, tgt_mask)
+            loss = criterion(
                     out.view(-1, out.size(-1)), labels.view(-1)
                 )  # flatten the output and target tensors
 
@@ -118,7 +115,7 @@ def train_transformer(
 
             optimizer.step()
             scheduler.step()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
             torch.cuda.synchronize()
             if global_rank == 0:
                 print(
