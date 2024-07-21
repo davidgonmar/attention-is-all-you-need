@@ -6,7 +6,6 @@ dataset:
   src_lang: en
   tgt_lang: de
   split: -1 # Automatically handled
-  seq_len: 50
 
 model:
   num_heads: 8
@@ -22,7 +21,9 @@ model:
 
 training:
   max_global_steps: 100000
-  batch_size: 120 # 50 * 120 == 6000 tokens per GPU. 6000 * 4 == 24000 tokens per batch across all GPUs. Assumes about 50 tokens per sequence
+  # original -> 25k tokens per batch -> 25k / 4 = 6250 tokens per gpu
+  tokens_per_step_per_gpu: 6250
+  n_gpus: 4
   lr: 1
   use_scheduler: true
   b1: 0.9

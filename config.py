@@ -76,11 +76,10 @@ class BaseConfig:
 
 @dataclass
 class DatasetConfig(BaseConfig):
-    ds_name: str = "opus_books"
+    ds_name: str = "wmt14"
     src_lang: str = "en"
-    tgt_lang: str = "es"
+    tgt_lang: str = "de"
     split: int = 0.9  # ignored if dataset has train and test splits already
-    seq_len: int = 400
 
 
 @dataclass
@@ -100,7 +99,6 @@ class ModelConfig(BaseConfig):
 @dataclass
 class TrainingConfig(BaseConfig):
     max_global_steps: int = 100000
-    batch_size: int = 12
     lr: float = 1.0  # Learning rate base, will be scaled by scheduler
     use_scheduler: bool = True
     b1: float = 0.9
@@ -112,6 +110,8 @@ class TrainingConfig(BaseConfig):
     checkpoint_save_filename: str = "checkpoint_{epoch}.pth"
     save_freq: float = 1.0  # once per epoch by default
     label_smoothing: float = 0.1
+    tokens_per_step_per_gpu: int = 1000
+    n_gpus: int = 1
 
     @property
     def checkpoint_path(self) -> Path:
@@ -162,7 +162,7 @@ def get_config_no_parser(config_path: Optional[Path] = None):
 
 def get_config_and_parser(
     existing_parser: Optional[ArgumentParser] = None, update: bool = True, extra_args=[]
-) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, ArgumentParser]:
+) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, EvalConfig, ArgumentParser]:
     parser = existing_parser or ArgumentParser(conflict_handler="resolve")
     parser.add_argument(
         "--config", type=Path, default=None

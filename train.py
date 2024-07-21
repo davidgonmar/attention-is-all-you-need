@@ -1,4 +1,9 @@
-from dataset import retrieve_processed_dataset, collate_fn
+from dataset import (
+    retrieve_processed_dataset,
+    collate_fn,
+    CustomDistributedSampler,
+    get_batches_dict,
+)
 from model import Transformer
 from config import get_config_and_parser
 import torch
@@ -9,8 +14,8 @@ from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import Dataset, DataLoader
 import os
 from torch.distributed import init_process_group
-from torch.utils.data.distributed import DistributedSampler
 from tokenizer import get_tokenizer, SpecialTokens
+import time
 
 
 def get_optim_and_scheduler(
@@ -73,9 +78,7 @@ def train_transformer(
     optimizer, scheduler = get_optim_and_scheduler(model, model_config, training_config)
     train_dl = DataLoader(
         train_dataset,
-        batch_size=training_config.batch_size,  # per GPU
-        shuffle=False,
-        sampler=DistributedSampler(train_dataset, shuffle=True),
+        batch_sampler=CustomDistributedSampler(get_batches_dict()["train"]),
         collate_fn=lambda x: collate_fn(x, pad_id),
     )
     global_step = 0
@@ -98,10 +101,10 @@ def train_transformer(
     while True:
         model.train()
         for _, elem in enumerate(train_dl):
+            start = time.time()
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
-            shapes = encoder_input.shape, decoder_input.shape, labels.shape
             src_mask = get_padding_mask(encoder_input, pad_id).to(device)
             tgt_mask = get_padding_mask(decoder_input, pad_id).to(device)
 
@@ -116,15 +119,15 @@ def train_transformer(
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
-
+            torch.cuda.synchronize()
             if global_rank == 0:
                 print(
                     "global_step:",
                     global_step,
                     "loss:",
                     loss.item(),
-                    "shapes:",
-                    shapes,
+                    "time:",
+                    str(time.time() - start) + "s",
                 )
                 # save each `training_config.save_freq` steps
                 if (global_step % (training_config.save_freq)) == 0:
@@ -198,10 +201,6 @@ def main():
         device_ids=[local_rank],
         output_device=local_rank,
     )
-    if not parser.parse_args().nocompile:
-        transformer = torch.compile(
-            transformer, dynamic=True
-        )  # we need dynamic because we pass different sequence lengths
     tokenizer_tgt = get_tokenizer(ds_config.tgt_lang)
     pad_id = tokenizer_tgt.token_to_id(SpecialTokens.PAD.value)
     train_transformer(
