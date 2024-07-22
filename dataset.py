@@ -63,15 +63,12 @@ def collate_fn(
             src, batch_first=True, padding_value=pad_idx
         )
         bs, slmax = src_padded.shape
-        print("x", sum([t.shape[0] for t in src]), sum(t.shape[0] for t in tgt_shifted))
         tgt_shifted_padded = torch.nn.utils.rnn.pad_sequence(
             tgt_shifted, batch_first=True, padding_value=pad_idx
         )
-        print("y", tgt_shifted_padded.shape[0] * tgt_shifted_padded.shape[1])
         tgt_labels_padded = torch.nn.utils.rnn.pad_sequence(
             tgt_labels, batch_first=True, padding_value=pad_idx
         )
-        print("z", tgt_labels_padded.shape[0] * tgt_labels_padded.shape[1])
     return {
         "src": src_padded,
         "tgt_shifted": tgt_shifted_padded,

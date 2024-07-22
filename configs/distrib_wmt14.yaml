@@ -23,6 +23,7 @@ training:
   max_global_steps: 100000
   # original -> 25k tokens per batch -> 25k / 4 = 6250 tokens per gpu
   tokens_per_step_per_gpu: 6250
+  grad_accum_steps: 2
   n_gpus: 4
   lr: 1
   use_scheduler: true

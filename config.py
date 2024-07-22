@@ -94,6 +94,7 @@ class ModelConfig(BaseConfig):
     n_decoder_layers: int = 6
     src_vocab_size: int = 10000
     tgt_vocab_size: int = 10000
+    
 
 
 @dataclass
@@ -112,6 +113,7 @@ class TrainingConfig(BaseConfig):
     label_smoothing: float = 0.1
     tokens_per_step_per_gpu: int = 1000
     n_gpus: int = 1
+    grad_accum_steps: int = 1
 
     @property
     def checkpoint_path(self) -> Path:

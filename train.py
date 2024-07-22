@@ -110,13 +110,18 @@ def train_transformer(
             loss = criterion(
                     out.view(-1, out.size(-1)), labels.view(-1)
                 )  # flatten the output and target tensors
-
+            loss = loss / training_config.grad_accum_steps # so grads are averaged
             loss.backward()
 
-            optimizer.step()
+            # grad accum
+            if (global_step + 1) % training_config.grad_accum_steps == 0:
+                if global_rank == 0:
+                    print("Performing grad update")
+                optimizer.step()
+                optimizer.zero_grad()
+            # we still want to update the scheduler even if we dont update the optimizer
+            # the effect of this is negligible but ensures 'correct' scheduling
             scheduler.step()
-            optimizer.zero_grad(set_to_none=True)
-            torch.cuda.synchronize()
             if global_rank == 0:
                 print(
                     "global_step:",

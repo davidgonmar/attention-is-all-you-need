@@ -22,6 +22,7 @@ model:
 training:
   max_global_steps: 100000
   tokens_per_step_per_gpu: 1000
+  grad_accum_steps: 1
   n_gpus: 1
   lr: 0.0005 # 1e-4
   use_scheduler: false
