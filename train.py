@@ -68,7 +68,6 @@ def train_transformer(
     training_config: TrainingConfig,
     global_rank: int = 0,
 ) -> None:
-    # only support cuda
     criterion = torch.nn.CrossEntropyLoss(
         ignore_index=pad_id,
         reduction="mean",
@@ -97,6 +96,7 @@ def train_transformer(
         )
         print("info: lr=", optimizer.param_groups[0]["lr"])
         print("info: warmup_steps=", training_config.warmup_steps)
+    scaler = torch.amp.GradScaler("cuda")
     while True:
         model.train()
         for _, elem in enumerate(train_dl):
@@ -106,30 +106,42 @@ def train_transformer(
             labels = elem["tgt_labels"].to(device)
             src_mask = get_padding_mask(encoder_input, pad_id).to(device)
             tgt_mask = get_padding_mask(decoder_input, pad_id).to(device)
-            out = model(encoder_input, decoder_input, src_mask, tgt_mask)
-            loss = criterion(
+            lossitem = None
+            with torch.autocast("cuda"):
+                out = model(encoder_input, decoder_input, src_mask, tgt_mask)
+                loss = criterion(
                     out.view(-1, out.size(-1)), labels.view(-1)
                 )  # flatten the output and target tensors
-            loss = loss / training_config.grad_accum_steps # so grads are averaged
-            loss.backward()
+                lossitem = loss.item()
+                loss = loss / training_config.grad_accum_steps  # so grads are averaged
+            scaler.scale(loss).backward()
 
             # grad accum
             if (global_step + 1) % training_config.grad_accum_steps == 0:
                 if global_rank == 0:
                     print("Performing grad update")
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
                 optimizer.zero_grad()
-            # we still want to update the scheduler even if we dont update the optimizer
-            # the effect of this is negligible but ensures 'correct' scheduling
-            scheduler.step()
+                scheduler.last_epoch = global_step // training_config.grad_accum_steps
+                scheduler.step()
+
             if global_rank == 0:
                 print(
                     "global_step:",
                     global_step,
                     "loss:",
-                    loss.item(),
+                    lossitem,  # we want to see the actual loss! not the scaled one
                     "time:",
                     str(time.time() - start) + "s",
+                    "batch_size:",
+                    encoder_input.size(0),
+                    "src len:",
+                    encoder_input.size(1),
+                    "tgt len: ",
+                    decoder_input.size(1),
+                    "lr: ",
+                    scheduler.get_lr(),
                 )
                 # save each `training_config.save_freq` steps
                 if (global_step % (training_config.save_freq)) == 0:
@@ -173,7 +185,6 @@ def main():
 
     ds_config, model_config, training_config, _, parser = get_config_and_parser(
         update=True,
-        extra_args=[{"args": ["--nocompile"], "kwargs": {"action": "store_true"}}],
     )
     dsdict = retrieve_processed_dataset()
     train_ds = dsdict["train"]

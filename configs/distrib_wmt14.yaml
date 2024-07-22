@@ -1,5 +1,4 @@
-# Description: Configuration file for training a transformer model on the OPUS Books dataset
-# I used this configuration file to train the model on a machine with 4 NVIDIA 3090 GPUs
+# Description: Configuration file for training on 4 GPUS (at least 16GB of memory per GPU)
 
 dataset:
   ds_name: wmt14
@@ -20,9 +19,12 @@ model:
   tgt_vocab_size: 32000
 
 training:
-  max_global_steps: 100000
-  # original -> 25k tokens per batch -> 25k / 4 = 6250 tokens per gpu
-  tokens_per_step_per_gpu: 6250
+  # original paper -> 100k steps, 25k src and 25k tgt tokens each step, 8 GPUs
+  # here, we do 200k steps with 12.5k src/tgt tokens per step. One gradient update each two steps -> 100k total updates
+  # 12.5 k tokens per step -> 3125 per gpu
+  # so, effectively, we are kind of replicating their setup but with 4 GPUs through gradient accum
+  max_global_steps: 200000
+  tokens_per_step_per_gpu: 3125
   grad_accum_steps: 2
   n_gpus: 4
   lr: 1
@@ -38,6 +40,6 @@ training:
   label_smoothing: 0.1
 
 eval:
-  batch_size: 128
+  batch_size: 256
   checkpoint_dir: "checkpoints/distrib_wmt14"
   checkpoint_filename: "latest"

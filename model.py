@@ -40,19 +40,33 @@ class PositionalEncoding(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.seq_len = seq_len
-        pos_encoding = torch.zeros(seq_len, d_model)  # (seq_len, d_model)
-        pos = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)  # (seq_len, 1)
-        div_term = torch.pow(10000, torch.arange(0, d_model, 2) / d_model)
+        self.dropout = nn.Dropout(dropout)
+        # Initial encoding on CPU or default device
+        self.create_positional_encoding(seq_len, device="cpu")
+
+    def create_positional_encoding(self, seq_len: int, device: torch.device) -> None:
+        pos_encoding = torch.zeros(
+            seq_len, self.d_model, device=device
+        )  # (seq_len, d_model)
+        pos = torch.arange(0, seq_len, dtype=torch.float, device=device).unsqueeze(
+            1
+        )  # (seq_len, 1)
+        div_term = torch.pow(
+            10000, torch.arange(0, self.d_model, 2, device=device) / self.d_model
+        )
 
         pos_encoding[:, 0::2] = torch.sin(pos / div_term)
         pos_encoding[:, 1::2] = torch.cos(pos / div_term)
-        self.register_buffer("pos_encoding", pos_encoding)
-        self.dropout = nn.Dropout(dropout)
+        self.register_buffer("pos_encoding", pos_encoding, persistent=False)
 
     def forward(self, x: Tensor) -> Tensor:
-        # x is of shape (batch_size, seq_len, d_model)
-        # so we want only to add the positional encoding to the seq_len dimension
-        cropped_pos_encoding = self.pos_encoding[: x.size(1), :]  # (seq_len, d_model)
+        device = x.device
+        seq_len = x.size(1)
+        if seq_len > self.seq_len:
+            self.seq_len = ((seq_len // 250) + 1) * 250
+            self.create_positional_encoding(self.seq_len, device)
+
+        cropped_pos_encoding = self.pos_encoding[:seq_len, :]  # (seq_len, d_model)
         return self.dropout(x + cropped_pos_encoding)
 
 
@@ -445,7 +459,7 @@ class Transformer(nn.Module):
                         checkpoint["model_config"], self.config
                     )
                 )
-            self.load_state_dict(checkpoint["model"])
+            self.load_state_dict(checkpoint["model"], strict=True)
             print("Loaded model from", checkpoint_path)
         except FileNotFoundError:
             print("Model not found at", checkpoint_path, "Starting from scratch")

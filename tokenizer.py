@@ -41,7 +41,7 @@ def get_tokenizer_path(lang: str) -> Path:
     return Path("data") / f"tokenizer_{lang}.json"
 
 
-def get_tokenizer(lang: str):
+def get_tokenizer(lang: str) -> Tokenizer:
     cached_path = get_tokenizer_path(lang)
     assert Path.exists(
         cached_path

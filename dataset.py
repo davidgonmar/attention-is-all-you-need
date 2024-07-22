@@ -112,6 +112,7 @@ from datasets import Dataset, DatasetDict
 import torch
 from torch.utils.data import random_split
 
+
 def preprocess(
     ds: Dataset | DatasetDict,
     ds_config: DatasetConfig,
@@ -121,6 +122,7 @@ def preprocess(
     """
     Given a dataset, pretokenizes it and stores it at 'save_path'.
     """
+
     def build(item):
         # Padding and truncation will be done manually in the collate function
         # Here we just pretokenize the text:
@@ -138,7 +140,12 @@ def preprocess(
         tgt_labels = tgt[1:]
         combined_length = len(src) + len(tgt)
 
-        return {"src": src, "tgt_shifted": tgt_shifted, "tgt_labels": tgt_labels, "combined_length": combined_length}
+        return {
+            "src": src,
+            "tgt_shifted": tgt_shifted,
+            "tgt_labels": tgt_labels,
+            "combined_length": combined_length,
+        }
 
     # 1. Split the dataset, manually if it doesn't have a test split or using the existing one
     if "train" in ds.keys() and "test" in ds.keys():
@@ -169,9 +176,11 @@ def preprocess(
     train_ds = train_ds.select_columns(colnames)
     test_ds = test_ds.select_columns(colnames)
 
-    
-    return DatasetDict(train=train_ds, test=test_ds)
+    print("Finished preprocessing dataset.")
+    print("Train length: ", len(train_ds))
+    print("Test length: ", len(test_ds))
 
+    return DatasetDict(train=train_ds, test=test_ds)
 
 
 def organize_batches(ds: Dataset | DatasetDict, num_gpus: int, n_tokens_per_gpu: int):
@@ -183,26 +192,33 @@ def organize_batches(ds: Dataset | DatasetDict, num_gpus: int, n_tokens_per_gpu:
 
     # iterate over the dataset
     for split in ["test", "train"]:
-        curr_batches = [{"max_tokens_src": 0, "max_tokens_tgt": 0, "idxs": []} for _ in range(num_gpus)]
-        
-        for idx, item in tqdm(enumerate(ds[split]), desc=f"Processing {split} split", total=len(ds[split])):
+        curr_batches = [
+            {"total_tokens_src": 0, "total_tokens_tgt": 0, "idxs": []}
+            for _ in range(num_gpus)
+        ]
+        for idx, item in tqdm(
+            enumerate(ds[split]), desc=f"Processing {split} split", total=len(ds[split])
+        ):
             src_len = len(item["src"])
             tgt_len = len(item["tgt_shifted"])
             max_len = max(src_len, tgt_len)
 
             if max_len > n_tokens_per_gpu:
-                print(f"Skipping item {idx} in {split} split, with src_len: {src_len} and tgt_len: {tgt_len}")
+                print(
+                    f"Skipping item {idx} in {split} split, with src_len: {src_len} and tgt_len: {tgt_len}"
+                )
                 continue
 
             # find the first GPU with enough space
             assigned = False
             for gpu in range(num_gpus):
                 cur = curr_batches[gpu]
-                if (cur["max_tokens_src"] * len(cur["idxs"]) + src_len <= n_tokens_per_gpu * 1.05) and \
-                   (cur["max_tokens_tgt"] * len(cur["idxs"]) + tgt_len <= n_tokens_per_gpu * 1.05):
+                if (cur["total_tokens_src"] + src_len <= n_tokens_per_gpu * 1.05) and (
+                    cur["total_tokens_tgt"] + tgt_len <= n_tokens_per_gpu * 1.05
+                ):
                     cur["idxs"].append(idx)
-                    cur["max_tokens_src"] = max(src_len, cur["max_tokens_src"])
-                    cur["max_tokens_tgt"] = max(tgt_len, cur["max_tokens_tgt"])
+                    cur["total_tokens_src"] += src_len
+                    cur["total_tokens_tgt"] += tgt_len
                     assigned = True
                     break
 
@@ -210,12 +226,16 @@ def organize_batches(ds: Dataset | DatasetDict, num_gpus: int, n_tokens_per_gpu:
             if not assigned:
                 for gpu in range(num_gpus):
                     obj[split][f"gpu_{gpu}"].append(curr_batches[gpu]["idxs"])
-                    curr_batches[gpu] = {"max_tokens_src": 0, "max_tokens_tgt": 0, "idxs": []}
+                    curr_batches[gpu] = {
+                        "total_tokens_src": 0,
+                        "total_tokens_tgt": 0,
+                        "idxs": [],
+                    }
 
-                # Assign the current item to the first GPU (all GPUs are reset)
+                # assign the current item to the first GPU (all GPUs are reset)
                 curr_batches[0]["idxs"].append(idx)
-                curr_batches[0]["max_tokens_src"] = src_len
-                curr_batches[0]["max_tokens_tgt"] = tgt_len
+                curr_batches[0]["total_tokens_src"] = src_len
+                curr_batches[0]["total_tokens_tgt"] = tgt_len
 
         # append any remaining items in the current batches to the output object
         for gpu in range(num_gpus):
@@ -235,6 +255,7 @@ def organize_batches(ds: Dataset | DatasetDict, num_gpus: int, n_tokens_per_gpu:
     # Save the object to disk
     with open(get_processed_dataset_path() + "/batches.json", "w") as f:
         json.dump(obj, f)
+
 
 def print_batch_stats(ds: Dataset | DatasetDict, obj: dict):
     # first, check that the n batches for each split and gpu is the same

@@ -94,7 +94,6 @@ class ModelConfig(BaseConfig):
     n_decoder_layers: int = 6
     src_vocab_size: int = 10000
     tgt_vocab_size: int = 10000
-    
 
 
 @dataclass
