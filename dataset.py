@@ -21,6 +21,7 @@ from tokenizer import SpecialTokens
 from torch.utils.data import random_split
 from tqdm import tqdm
 import pandas as pd
+import random
 
 DATA_DIR = "data"
 
@@ -61,12 +62,16 @@ def collate_fn(
         src_padded = torch.nn.utils.rnn.pad_sequence(
             src, batch_first=True, padding_value=pad_idx
         )
+        bs, slmax = src_padded.shape
+        print("x", sum([t.shape[0] for t in src]), sum(t.shape[0] for t in tgt_shifted))
         tgt_shifted_padded = torch.nn.utils.rnn.pad_sequence(
             tgt_shifted, batch_first=True, padding_value=pad_idx
         )
+        print("y", tgt_shifted_padded.shape[0] * tgt_shifted_padded.shape[1])
         tgt_labels_padded = torch.nn.utils.rnn.pad_sequence(
             tgt_labels, batch_first=True, padding_value=pad_idx
         )
+        print("z", tgt_labels_padded.shape[0] * tgt_labels_padded.shape[1])
     return {
         "src": src_padded,
         "tgt_shifted": tgt_shifted_padded,
@@ -159,91 +164,80 @@ def preprocess(
     test_ds = test_ds.map(build)
 
     # 3. Order by length for better padding utilization
-    train_ds.sort("combined_length")
-    test_ds.sort("combined_length")
+    train_ds = train_ds.sort("combined_length")
+    test_ds = test_ds.sort("combined_length")
 
     # 4. We don't want the combined_length attribute anymore!
     colnames = ["src", "tgt_labels", "tgt_shifted"]
     train_ds = train_ds.select_columns(colnames)
     test_ds = test_ds.select_columns(colnames)
+
     
     return DatasetDict(train=train_ds, test=test_ds)
 
 
 
 def organize_batches(ds: Dataset | DatasetDict, num_gpus: int, n_tokens_per_gpu: int):
-    # will create a json object with the following structure:
-    # {
-    #     "train": {
-    #         "gpu_0": [[...idxs for batch 0...], [...idxs for batch 1...], ...],
-    #         "gpu_1": [[...idxs for batch 0...], [...idxs for batch 1...], ...],
-    #         ...
-    #     },
-    #     "test": {
-    #       ...
-    #     }
-
-    # the rules are that each gpu gets the same number of batches, and that each batch has approximately n_tokens_per_gpu tokens in src or tgt (whatever comes first)
-    # the idxs for each batch on each gpu ARE NOT NECESSARILY THE SAME, but they are guaranteed to have approximately the same number of tokens
     obj = {"train": {}, "test": {}}
-
     # add gpus to both train and test
     for split in ["train", "test"]:
         for gpu in range(num_gpus):
             obj[split][f"gpu_{gpu}"] = []
 
     # iterate over the dataset
-    for split in ["train", "test"]:
-        curr_batches = {
-            "gpu" + str(i): {"total_tokens": 0, "idxs": []} for i in range(num_gpus)
-        }
-        currgpu = -1
-        for idx, item in tqdm(
-            enumerate(ds[split]), desc=f"Processing {split} split", total=len(ds[split])
-        ):
-            currgpu = (currgpu + 1) % num_gpus
+    for split in ["test", "train"]:
+        curr_batches = [{"max_tokens_src": 0, "max_tokens_tgt": 0, "idxs": []} for _ in range(num_gpus)]
+        
+        for idx, item in tqdm(enumerate(ds[split]), desc=f"Processing {split} split", total=len(ds[split])):
             src_len = len(item["src"])
             tgt_len = len(item["tgt_shifted"])
             max_len = max(src_len, tgt_len)
 
-            # 1. Filter out items that are too big (technically wont happen)
             if max_len > n_tokens_per_gpu:
-                # if the current item is too big, we skip it
-                print(
-                    f"Skipping item {idx} in {split} split, with src_len: {src_len} and tgt_len: {tgt_len}"
-                )
+                print(f"Skipping item {idx} in {split} split, with src_len: {src_len} and tgt_len: {tgt_len}")
                 continue
 
-            # 2. Decide which gpu to put the item in (the first one that has enough space)
-            while curr_batches[f"gpu{currgpu}"]["total_tokens"] + max_len > (
-                n_tokens_per_gpu * 1.1
-            ):  # we add a 10% margin, so it's not always < n_tokens_per_gpu but approximately n_tokens_per_gpu
-                currgpu += 1
-                # 2.1 If all gpus are full, we reset the counters
-                if currgpu == num_gpus:
-                    for gpu in range(num_gpus):
-                        curr_batches[f"gpu{gpu}"]["total_tokens"] = 0
-                        # we append the idxs to the object
-                        obj[split][f"gpu_{gpu}"].append(
-                            curr_batches[f"gpu{gpu}"]["idxs"]
-                        )
-                        curr_batches[f"gpu{gpu}"]["idxs"] = []
-                    currgpu = 0
+            # find the first GPU with enough space
+            assigned = False
+            for gpu in range(num_gpus):
+                cur = curr_batches[gpu]
+                if (cur["max_tokens_src"] * len(cur["idxs"]) + src_len <= n_tokens_per_gpu * 1.05) and \
+                   (cur["max_tokens_tgt"] * len(cur["idxs"]) + tgt_len <= n_tokens_per_gpu * 1.05):
+                    cur["idxs"].append(idx)
+                    cur["max_tokens_src"] = max(src_len, cur["max_tokens_src"])
+                    cur["max_tokens_tgt"] = max(tgt_len, cur["max_tokens_tgt"])
+                    assigned = True
                     break
 
-            # 3. Add the item to the current gpu
-            curr_batches[f"gpu{currgpu}"]["total_tokens"] += max_len
-            curr_batches[f"gpu{currgpu}"]["idxs"].append(idx)
-
-            # 4. If we finished the loop, we append the leftover idxs to the object
-            if idx == len(ds[split]) - 1:
+            # if no GPU had enough space, we flush the current batches and start new ones
+            if not assigned:
                 for gpu in range(num_gpus):
-                    obj[split][f"gpu_{gpu}"].append(curr_batches[f"gpu{gpu}"]["idxs"])
+                    obj[split][f"gpu_{gpu}"].append(curr_batches[gpu]["idxs"])
+                    curr_batches[gpu] = {"max_tokens_src": 0, "max_tokens_tgt": 0, "idxs": []}
 
-    # 4. We finished. Save the object to disk
+                # Assign the current item to the first GPU (all GPUs are reset)
+                curr_batches[0]["idxs"].append(idx)
+                curr_batches[0]["max_tokens_src"] = src_len
+                curr_batches[0]["max_tokens_tgt"] = tgt_len
+
+        # append any remaining items in the current batches to the output object
+        for gpu in range(num_gpus):
+            if curr_batches[gpu]["idxs"]:
+                obj[split][f"gpu_{gpu}"].append(curr_batches[gpu]["idxs"])
+
+        # ensure all GPUs have the same number of batches
+        min_batches = min(len(obj[split][f"gpu_{gpu}"]) for gpu in range(num_gpus))
+        for gpu in range(num_gpus):
+            batches = obj[split][f"gpu_{gpu}"]
+            while True:
+                if len(batches) == min_batches:
+                    break
+                random_batch = random.randint(0, len(batches) - 1)
+                batches.pop(random_batch)
+
+    # Save the object to disk
     with open(get_processed_dataset_path() + "/batches.json", "w") as f:
         json.dump(obj, f)
-
 
 def print_batch_stats(ds: Dataset | DatasetDict, obj: dict):
     # first, check that the n batches for each split and gpu is the same
@@ -252,7 +246,7 @@ def print_batch_stats(ds: Dataset | DatasetDict, obj: dict):
         for gpu in range(1, len(obj[split])):
             assert (
                 len(obj[split][f"gpu_{gpu}"]) == gpu0_nbatches
-            ), f"Number of batches for split {split} and gpu_0 is different from gpu_{gpu}"
+            ), f"Number of batches for split {split} and gpu_0 is different from gpu_{gpu}: {gpu0_nbatches}, {len(obj[split][f'gpu_{gpu}'])}"
     for split in ["train", "test"]:
         for gpu in range(len(obj[split])):
             print(f"Stats for {split} split, gpu_{gpu}: ")
@@ -285,6 +279,7 @@ def print_batch_stats(ds: Dataset | DatasetDict, obj: dict):
                 max_tgt_tokens = max(max_tgt_tokens, local_tgt_tokens)
                 min_src_tokens = min(min_src_tokens, local_src_tokens)
                 min_tgt_tokens = min(min_tgt_tokens, local_tgt_tokens)
+            # it is expected that average tokens is not close to the maximum because of padding/collating
             print("Total batches:", len(obj[split][f"gpu_{gpu}"]))
             print("Average src tokens:", src_tokens / len(obj[split][f"gpu_{gpu}"]))
             print("Average tgt tokens:", tgt_tokens / len(obj[split][f"gpu_{gpu}"]))
