@@ -2,3 +2,4 @@ torch==2.1
 tokenizers==0.15.0
 datasets==2.18.0
 torchtext==0.16.0
+wandb==0.17.5

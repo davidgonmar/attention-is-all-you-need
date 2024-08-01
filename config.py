@@ -1,5 +1,5 @@
 from argparse import ArgumentParser
-from typing import List, Any, Tuple
+from typing import List, Any, Tuple, Dict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -72,6 +72,10 @@ class BaseConfig:
     def load_from_dict(self, d: dict) -> None:
         for k, v in d.items():
             setattr(self, k, v)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the configuration to a dictionary."""
+        return {k: v for k, v in self.__dict__.items()}
 
 
 @dataclass

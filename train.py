@@ -16,6 +16,10 @@ import os
 from torch.distributed import init_process_group
 from tokenizer import get_tokenizer, SpecialTokens
 import time
+import wandb
+from torch.distributed.elastic.multiprocessing.errors import record
+
+torch.backends.cuda.matmul.allow_tf32 = True
 
 
 def get_optim_and_scheduler(
@@ -79,6 +83,7 @@ def train_transformer(
         train_dataset,
         batch_sampler=CustomDistributedSampler(get_batches_dict()["train"]),
         collate_fn=lambda x: collate_fn(x, pad_id),
+        pin_memory=True,
     )
     global_step = 0
     if training_config.checkpoint_path is not None:
@@ -97,17 +102,17 @@ def train_transformer(
         print("info: lr=", optimizer.param_groups[0]["lr"])
         print("info: warmup_steps=", training_config.warmup_steps)
     scaler = torch.amp.GradScaler("cuda")
+    model.train()
     while True:
-        model.train()
         for _, elem in enumerate(train_dl):
             start = time.time()
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
-            src_mask = get_padding_mask(encoder_input, pad_id).to(device)
-            tgt_mask = get_padding_mask(decoder_input, pad_id).to(device)
+            src_mask = get_padding_mask(encoder_input, pad_id)
+            tgt_mask = get_padding_mask(decoder_input, pad_id)
             lossitem = None
-            with torch.autocast("cuda"):
+            with torch.autocast("cuda", enabled=True):
                 out = model(encoder_input, decoder_input, src_mask, tgt_mask)
                 loss = criterion(
                     out.view(-1, out.size(-1)), labels.view(-1)
@@ -123,10 +128,16 @@ def train_transformer(
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
-                scheduler.last_epoch = global_step // training_config.grad_accum_steps
                 scheduler.step()
 
             if global_rank == 0:
+                wandb.log(
+                    {
+                        "global_step": global_step,
+                        "train/loss": lossitem,
+                        "lr": scheduler.get_lr()[0],
+                    }
+                )
                 print(
                     "global_step:",
                     global_step,
@@ -141,7 +152,7 @@ def train_transformer(
                     "tgt len: ",
                     decoder_input.size(1),
                     "lr: ",
-                    scheduler.get_lr(),
+                    scheduler.get_lr()[0],
                 )
                 # save each `training_config.save_freq` steps
                 if (global_step % (training_config.save_freq)) == 0:
@@ -171,10 +182,10 @@ def train_transformer(
                 return
 
 
+@record
 def main():
     #### Multi-GPU training ####
-    # nccl only supported on linux
-    init_process_group(backend="nccl" if os.name == "posix" else "gloo")
+    init_process_group(backend="nccl")
     local_rank, global_rank, world_size = (
         int(os.environ["LOCAL_RANK"]),
         int(os.environ["RANK"]),
@@ -216,6 +227,21 @@ def main():
     )
     tokenizer_tgt = get_tokenizer(ds_config.tgt_lang)
     pad_id = tokenizer_tgt.token_to_id(SpecialTokens.PAD.value)
+
+    if global_rank == 0:
+        tcfgdict = training_config.to_dict()
+        t_cfg_log = {
+            key: tcfgdict[key] for key in tcfgdict if not key.startswith("checkpoint")
+        }
+        wandb.init(
+            name="run-0",
+            project="attention-is-all-you-need",
+            config={
+                "ds": ds_config.to_dict(),
+                "model": model_config.to_dict(),
+                "training": t_cfg_log,
+            },
+        )
     train_transformer(
         transformer,
         train_ds,

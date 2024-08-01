@@ -84,18 +84,15 @@ if __name__ == "__main__":
             print(" Batch number:", i, " out of:", len(test_dl), end="\r", flush=True)
 
             # calculate BLEU
-            s = "Schöne Tiere und leckere Torten locken"
-            tok = tgt_tok.encode(s).ids
-            print(tok)
-            print(tgt_tok.decode(tok))
             out = out.argmax(dim=-1)
             for j in range(out.size(0)):  # iterate over batch
                 ref = labels[j].tolist()
                 cands = out[j].tolist()
                 ref = tgt_tok.decode(ref).replace(" ##", "")
                 cands = tgt_tok.decode(cands).replace(" ##", "")
+                src = src_tok.decode(encoder_input[j].tolist()).replace(" ##", "")
                 if j == 0:
-                    print("ref: ", ref, "\ncands: ", cands)
+                    print("ref: ", ref, "\ncands: ", cands, "eng:", src)
                 sc = sacrebleu.corpus_bleu(cands, [ref]).score
                 avg_bleu += sc
 
