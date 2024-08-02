@@ -162,6 +162,7 @@ def train_transformer(
             if (global_step + 1) % training_config.eval_freq == 0:
                 start = time.time()
                 valid_loss, bleu = validate_model(model, test_dl, device, ds_config, training_config)
+                model.train()
                 avg_train_loss = accum_loss / training_config.eval_freq
                 if global_rank == 0:
                     print(
