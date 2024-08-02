@@ -96,8 +96,7 @@ class ModelConfig(BaseConfig):
     dropout: float = 0.1
     n_encoder_layers: int = 6
     n_decoder_layers: int = 6
-    src_vocab_size: int = 10000
-    tgt_vocab_size: int = 10000
+    vocab_size: int = 10000
 
 
 @dataclass

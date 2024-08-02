@@ -26,14 +26,12 @@ def validate_model(model, test_dl, device, ds_config, bleu="estimate"):
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
-            src_tok, tgt_tok = get_tokenizer(ds_config.src_lang), get_tokenizer(
-                ds_config.tgt_lang
-            )
+            tokenizer = get_tokenizer()
             src_mask = get_padding_mask(
-                encoder_input, src_tok.token_to_id(SpecialTokens.PAD.value)
+                encoder_input, tokenizer.token_to_id(SpecialTokens.PAD.value)
             ).to(device)
             tgt_mask = get_padding_mask(
-                decoder_input, tgt_tok.token_to_id(SpecialTokens.PAD.value)
+                decoder_input, tokenizer.token_to_id(SpecialTokens.PAD.value)
             ).to(device)
 
             # Forward pass
@@ -41,7 +39,7 @@ def validate_model(model, test_dl, device, ds_config, bleu="estimate"):
             loss = torch.nn.functional.cross_entropy(
                 out.view(-1, out.shape[-1]),
                 labels.view(-1),
-                ignore_index=tgt_tok.token_to_id(SpecialTokens.PAD.value),
+                ignore_index=tokenizer.token_to_id(SpecialTokens.PAD.value),
                 reduction="mean",
             )
             local_loss += loss.item()
@@ -52,18 +50,20 @@ def validate_model(model, test_dl, device, ds_config, bleu="estimate"):
                 for j in range(out.size(0)):  # iterate over batch
                     ref = labels[j].tolist()
                     cands = out[j].tolist()
-                    ref = tgt_tok.decode(ref).replace(" ##", "")
-                    cands = tgt_tok.decode(cands).replace(" ##", "")
+                    ref = tokenizer.decode(ref).replace(" ##", "")
+                    cands = tokenizer.decode(cands).replace(" ##", "")
                     sc = sacrebleu.corpus_bleu([cands], [[ref]]).score
                     local_bleu += sc / out.size(0)
             else:
                 for j in range(encoder_input.size(0)):  # iterate over batch
                     ref = labels[j].tolist()
                     cands = model.module.generate(
-                        src_tok, encoder_input[i].unsqueeze(0), src_mask[i].unsqueeze(0)
+                        tokenizer,
+                        encoder_input[i].unsqueeze(0),
+                        src_mask[i].unsqueeze(0),
                     )[0].tolist()
-                    ref = tgt_tok.decode(ref).replace(" ##", "")
-                    cands = tgt_tok.decode(cands).replace(" ##", "")
+                    ref = tokenizer.decode(ref).replace(" ##", "")
+                    cands = tokenizer.decode(cands).replace(" ##", "")
                     sc = sacrebleu.corpus_bleu([cands], [[ref]]).score
                     local_bleu += sc / out.size(0)
         local_loss /= len(test_dl)

@@ -38,8 +38,7 @@ model:
   dropout: 0.1
   n_encoder_layers: 6
   n_decoder_layers: 6
-  src_vocab_size: 32000
-  tgt_vocab_size: 32000
+  vocab_size: 32000
 
 training:
   max_global_steps: 100000
@@ -56,6 +55,7 @@ training:
   checkpoint_filename: "latest"
   checkpoint_save_filename: "checkpoint.pth"
   save_freq: 1000 # each 1000 steps
+  eval_freq: 100
   label_smoothing: 0.1
 
 eval:
@@ -84,7 +84,7 @@ This will create a tokenizer (using the Tokenizers library) and save it. It will
 
 This will preprocess (pre-tokenize and sort) the dataset and save it. It will use the tokenizer created in the previous step.
 
-3. Organize the dataset
+3. Organize the dataset into batches
 
 ```bash
     python dataset.py --config configs/distrib_wmt14.yaml --task organize_batches

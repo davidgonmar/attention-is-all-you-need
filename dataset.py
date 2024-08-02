@@ -106,17 +106,10 @@ class CustomDistributedSampler(Sampler):
         return len(self.batches_dict[f"gpu_{self.rank}"])
 
 
-import numpy as np
-from datasets import Dataset, DatasetDict
-import torch
-from torch.utils.data import random_split
-
-
 def preprocess(
     ds: Dataset | DatasetDict,
     ds_config: DatasetConfig,
-    tokenizer_src: Tokenizer,
-    tokenizer_tgt: Tokenizer,
+    tokenizer: Tokenizer,
 ) -> Dataset | DatasetDict:
     """
     Given a dataset, pretokenizes it and stores it at 'save_path'.
@@ -129,12 +122,8 @@ def preprocess(
         # tgt_shifted = decoder input
         # tgt_labels = expected (decoder) output
         BOS, EOS = SpecialTokens.BOS.value, SpecialTokens.EOS.value
-        src = tokenizer_src.encode(
-            BOS + item["translation"][ds_config.src_lang] + EOS
-        ).ids
-        tgt = tokenizer_tgt.encode(
-            BOS + item["translation"][ds_config.tgt_lang] + EOS
-        ).ids
+        src = tokenizer.encode(BOS + item["translation"][ds_config.src_lang] + EOS).ids
+        tgt = tokenizer.encode(BOS + item["translation"][ds_config.tgt_lang] + EOS).ids
         tgt_shifted = tgt[:-1]
         tgt_labels = tgt[1:]
         combined_length = len(src) + len(tgt)
@@ -310,10 +299,9 @@ def print_batch_stats(ds: Dataset | DatasetDict, obj: dict):
 
 
 def create_ds(ds_config):
-    tokenizer_src = get_tokenizer(ds_config.src_lang)
-    tokenizer_tgt = get_tokenizer(ds_config.tgt_lang)
+    tokenizer = get_tokenizer()
     ds = get_raw_dataset(ds_config)
-    pretokenized = preprocess(ds, ds_config, tokenizer_src, tokenizer_tgt)
+    pretokenized = preprocess(ds, ds_config, tokenizer)
     pretokenized.save_to_disk(get_processed_dataset_path())
 
 

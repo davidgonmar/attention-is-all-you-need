@@ -236,8 +236,7 @@ def main():
     print("Dataset config:", ds_config)
     print("Model config:", model_config)
     print("Training config:", training_config)
-    print("Src vocab size:", model_config.src_vocab_size)
-    print("Tgt vocab size:", model_config.tgt_vocab_size)
+    print("Shared vocab size:", model_config.vocab_size)
     print("===========================DISTRIBUTED INFO============================")
     print("Local rank:", local_rank)
     print("Global rank:", global_rank)
@@ -254,8 +253,8 @@ def main():
         device_ids=[local_rank],
         output_device=local_rank,
     )
-    tokenizer_tgt = get_tokenizer(ds_config.tgt_lang)
-    pad_id = tokenizer_tgt.token_to_id(SpecialTokens.PAD.value)
+    tokenizer = get_tokenizer()
+    pad_id = tokenizer.token_to_id(SpecialTokens.PAD.value)
 
     if global_rank == 0:
         tcfgdict = training_config.to_dict()

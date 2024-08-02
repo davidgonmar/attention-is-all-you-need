@@ -15,11 +15,21 @@ class SpecialTokens(Enum):
     PAD = "<pad>"
 
 
-def train_tokenizer(ds: Dataset, lang: str, vocab_size: int):
-    cached_path = get_tokenizer_path(lang)
+def get_tokenizer_path() -> Path:
+    return Path("data") / "tokenizer.json"
+
+
+def get_tokenizer() -> Tokenizer:
+    cached_path = get_tokenizer_path()
+    assert Path.exists(cached_path), "Tokenizer does not exist, train it first"
+    return Tokenizer.from_file(str(cached_path))
+
+
+def train_tokenizer(ds: Dataset, vocab_size: int):
+    cached_path = get_tokenizer_path()
     if Path.exists(cached_path):
         raise ValueError(
-            f"Tokenizer for {lang} already exists. If you still want to train a new one, delete the existing one first"
+            "Tokenizer already exists. If you still want to train a new one, delete the existing one first"
         )
     tok = Tokenizer(WordPiece(unk_token=SpecialTokens.UNK.value))
     tok.pre_tokenizer = Whitespace()
@@ -27,26 +37,17 @@ def train_tokenizer(ds: Dataset, lang: str, vocab_size: int):
         special_tokens=[t.value for t in SpecialTokens],
         vocab_size=vocab_size,
     )
+    langs = ds[0]["translation"].keys()
+    assert len(langs) == 2, "expected two langs, got: " + str(langs)
 
     def iter_ds(ds: Dataset):
         for ex in ds:
-            yield ex["translation"][lang]
+            # one sentence each time!
+            for lang in langs:
+                yield ex["translation"][lang]
 
     tok.train_from_iterator(iter_ds(ds), trainer)
-    # We don't use padding/truncation in the tokenizer, we'll do it manually
     tok.save(str(cached_path))
-
-
-def get_tokenizer_path(lang: str) -> Path:
-    return Path("data") / f"tokenizer_{lang}.json"
-
-
-def get_tokenizer(lang: str) -> Tokenizer:
-    cached_path = get_tokenizer_path(lang)
-    assert Path.exists(
-        cached_path
-    ), f"Tokenizer for {lang} does not exist, train it first"
-    return Tokenizer.from_file(str(cached_path))
 
 
 if __name__ == "__main__":
@@ -65,8 +66,6 @@ if __name__ == "__main__":
         if "train" in get_raw_dataset(ds_config).keys()
         else get_raw_dataset(ds_config)
     )
-    # Train tokenizer for source language
-    train_tokenizer(dataset, ds_config.src_lang, model_config.src_vocab_size)
-    # Train tokenizer for target language
-    train_tokenizer(dataset, ds_config.tgt_lang, model_config.tgt_vocab_size)
-    print("Tokenizers trained successfully")
+    # Train tokenizer for both langs
+    train_tokenizer(dataset, model_config.vocab_size)
+    print("Tokenizer trained successfully")

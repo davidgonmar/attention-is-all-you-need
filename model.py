@@ -356,15 +356,13 @@ class Transformer(nn.Module):
         d_k: int,
         d_v: int,
         d_ff: int,
-        src_vocab_size: int,
-        tgt_vocab_size: int,
+        vocab_size: int,
         dropout: float,
         n_encoder_layers: int,
         n_decoder_layers: int,
     ):
         super().__init__()
-        self.src_vocab_size = src_vocab_size
-        self.tgt_vocab_size = tgt_vocab_size
+        self.vocab_size = vocab_size
         self.config = ModelConfig(
             num_heads=num_heads,
             d_model=d_model,
@@ -374,8 +372,7 @@ class Transformer(nn.Module):
             n_encoder_layers=n_encoder_layers,
             n_decoder_layers=n_decoder_layers,
             dropout=dropout,
-            src_vocab_size=src_vocab_size,
-            tgt_vocab_size=tgt_vocab_size,
+            vocab_size=vocab_size,
         )
         self.encoder = Encoder(
             num_heads=num_heads,
@@ -395,15 +392,15 @@ class Transformer(nn.Module):
             dropout=dropout,
             num_layers=n_decoder_layers,
         )
-        self.input_embedder = InputEmbedder(d_model=d_model, vocab_size=src_vocab_size)
+        self.input_embedder = InputEmbedder(d_model=d_model, vocab_size=vocab_size)
         self.positional_encoder = PositionalEncoding(
             d_model=d_model, seq_len=3000, dropout=dropout
         )
-        self.output_embedder = InputEmbedder(d_model=d_model, vocab_size=tgt_vocab_size)
+        self.output_embedder = InputEmbedder(d_model=d_model, vocab_size=vocab_size)
         self.positional_decoder = PositionalEncoding(
             d_model=d_model, seq_len=3000, dropout=dropout
         )
-        self.linear = nn.Linear(d_model, tgt_vocab_size)
+        self.linear = nn.Linear(d_model, vocab_size)
         self.dropout = nn.Dropout(dropout)
 
     def forward(
@@ -494,8 +491,7 @@ class Transformer(nn.Module):
             d_k=config.d_k,
             d_v=config.d_v,
             d_ff=config.d_ff,
-            src_vocab_size=config.src_vocab_size,
-            tgt_vocab_size=config.tgt_vocab_size,
+            vocab_size=config.vocab_size,
             dropout=config.dropout,
             n_encoder_layers=config.n_encoder_layers,
             n_decoder_layers=config.n_decoder_layers,
