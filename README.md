@@ -65,7 +65,7 @@ eval:
 ```
 
 ### Steps for training
-
+First, ensure that there is a directory named `checkpoints/config_name` located at the root of the project.
 To prepare everything for training, follow these steps (in order) (you can use any configuration file. Just make sure n_gpus matches the torchrun command):
 
 1. Train the tokenizer
