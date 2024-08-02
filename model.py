@@ -5,7 +5,7 @@ from torch.nn import functional as F
 from torch import nn
 
 from config import ModelConfig
-from tokenizer import SpecialTokens, get_tokenizer
+from tokenizer import SpecialTokens
 
 USE_TORCH_SDPA = True
 

@@ -3,3 +3,4 @@ tokenizers==0.15.0
 datasets==2.18.0
 wandb==0.17.5
 sacrebleu==2.4.2
+tqdm==4.66.4
