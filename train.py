@@ -131,7 +131,7 @@ def train_transformer(
                 accum_loss += lossitem
                 loss = loss / training_config.grad_accum_steps  # so grads are averaged
             scaler.scale(loss).backward()
-            
+
             # grad accum
             if (global_step + 1) % training_config.grad_accum_steps == 0:
                 if global_rank == 0:
@@ -140,23 +140,23 @@ def train_transformer(
                 scaler.update()
                 optimizer.zero_grad()
                 scheduler.step()
-            
+
             if global_rank == 0:
                 print(
-                        "global_step:",
-                        global_step,
-                        "loss:",
-                        lossitem,  # we want to see the actual loss! not the scaled one
-                        "time:",
-                        str(time.time() - start) + "s",
-                        "batch_size:",
-                        encoder_input.size(0),
-                        "src len:",
-                        encoder_input.size(1),
-                        "tgt len: ",
-                        decoder_input.size(1),
-                        "lr: ",
-                        scheduler.get_lr()[0],
+                    "global_step:",
+                    global_step,
+                    "loss:",
+                    lossitem,  # we want to see the actual loss! not the scaled one
+                    "time:",
+                    str(time.time() - start) + "s",
+                    "batch_size:",
+                    encoder_input.size(0),
+                    "src len:",
+                    encoder_input.size(1),
+                    "tgt len: ",
+                    decoder_input.size(1),
+                    "lr: ",
+                    scheduler.get_lr()[0],
                 )
 
             if (global_step + 1) % training_config.eval_freq == 0:
@@ -186,25 +186,25 @@ def train_transformer(
                 accum_loss = 0
                 # save each `training_config.save_freq` steps
             if ((global_step + 1) % training_config.save_freq) == 0:
-                    print("Saving checkpoint... global_step:", global_step)
-                    torch.save(
-                        {
-                            "model": (
-                                model.module.state_dict()
-                                if hasattr(model, "module")
-                                else model.state_dict()
-                            ),  # save the model depending on whether it is wrapped in a DataParallel or something
-                            "optimizer": optimizer.state_dict(),
-                            "scheduler": scheduler.state_dict(),
-                            "model_config": model_config,  # does not occupy much space, but useful so we do not accidentally load a different model config
-                            "global_step": global_step,
-                        },
-                        (
-                            training_config.checkpoint_dir
-                            / training_config.checkpoint_save_filename.format(
-                                global_step=global_step
-                            )
-                        ),
+                print("Saving checkpoint... global_step:", global_step)
+                torch.save(
+                    {
+                        "model": (
+                            model.module.state_dict()
+                            if hasattr(model, "module")
+                            else model.state_dict()
+                        ),  # save the model depending on whether it is wrapped in a DataParallel or something
+                        "optimizer": optimizer.state_dict(),
+                        "scheduler": scheduler.state_dict(),
+                        "model_config": model_config,  # does not occupy much space, but useful so we do not accidentally load a different model config
+                        "global_step": global_step,
+                    },
+                    (
+                        training_config.checkpoint_dir
+                        / training_config.checkpoint_save_filename.format(
+                            global_step=global_step
+                        )
+                    ),
                 )
             global_step += 1
             if global_step >= training_config.max_global_steps:

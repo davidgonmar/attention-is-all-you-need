@@ -5,6 +5,7 @@ from torch.nn import functional as F
 from torch import nn
 
 from config import ModelConfig
+from tokenizer import SpecialTokens, get_tokenizer
 
 USE_TORCH_SDPA = True
 
@@ -429,6 +430,59 @@ class Transformer(nn.Module):
         decoder_output = self.linear(decoder_output)
 
         return decoder_output
+
+    def generate(
+        self,
+        tokenizer,
+        src: torch.Tensor,
+        src_pad_attn_mask: torch.Tensor,
+        max_length: int = 500,
+        temperature: float = 1.0,
+    ) -> torch.Tensor:
+        src = self.input_embedder(src)
+        src = self.positional_encoder(src)
+        src = self.dropout(src)
+
+        encoder_output = self.encoder(src, src_pad_attn_mask)
+
+        bos_tok = tokenizer.encode(SpecialTokens.BOS.value).ids[0]
+        eos_tok = tokenizer.encode(SpecialTokens.EOS.value).ids[0]
+
+        batch_size = src.size(0)
+
+        tgt = torch.full((batch_size, 1), bos_tok, dtype=torch.long, device=src.device)
+
+        tgt_pad_attn_mask = None
+
+        generated_tokens = []
+
+        for _ in range(max_length):
+            tgt_embedded = self.output_embedder(tgt)
+            tgt_embedded = self.positional_decoder(tgt_embedded)
+            tgt_embedded = self.dropout(tgt_embedded)
+
+            decoder_output = self.decoder(
+                encoder_output, tgt_embedded, src_pad_attn_mask, tgt_pad_attn_mask
+            )
+
+            decoder_output = self.linear(decoder_output)
+
+            next_token_logits = decoder_output[:, -1, :]
+
+            next_token_logits = next_token_logits / temperature
+
+            next_token_probs = F.softmax(next_token_logits, dim=-1)
+            next_token = torch.multinomial(next_token_probs, num_samples=1)
+
+            generated_tokens.append(next_token)
+
+            tgt = torch.cat([tgt, next_token], dim=1)
+
+            if (next_token == eos_tok).all():
+                break
+        generated_sequence = torch.cat(generated_tokens, dim=1)
+
+        return generated_sequence
 
     @staticmethod
     def from_config(

@@ -20,7 +20,6 @@ from tokenizers import Tokenizer
 from tokenizer import SpecialTokens
 from torch.utils.data import random_split
 from tqdm import tqdm
-import pandas as pd
 import random
 
 DATA_DIR = "data"

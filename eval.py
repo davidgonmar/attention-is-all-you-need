@@ -14,13 +14,10 @@ from tokenizer import SpecialTokens, get_tokenizer
 import os
 import sacrebleu
 
-def validate_model(
-    model,
-    test_dl,
-    device,
-    ds_config
-):  
+
+def validate_model(model, test_dl, device, ds_config, bleu="estimate"):
     from train import get_padding_mask
+
     local_loss = 0
     local_bleu = 0
     with torch.no_grad():
@@ -50,15 +47,25 @@ def validate_model(
             local_loss += loss.item()
 
             # Calculate BLEU
-            out = out.argmax(dim=-1)
-            for j in range(out.size(0)):  # iterate over batch
-                ref = labels[j].tolist()
-                cands = out[j].tolist()
-                ref = tgt_tok.decode(ref).replace(" ##", "")
-                cands = tgt_tok.decode(cands).replace(" ##", "")
-                sc = sacrebleu.corpus_bleu([cands], [[ref]]).score
-                local_bleu += sc / out.size(0)
-
+            if bleu == "estimate":
+                out = out.argmax(dim=-1)
+                for j in range(out.size(0)):  # iterate over batch
+                    ref = labels[j].tolist()
+                    cands = out[j].tolist()
+                    ref = tgt_tok.decode(ref).replace(" ##", "")
+                    cands = tgt_tok.decode(cands).replace(" ##", "")
+                    sc = sacrebleu.corpus_bleu([cands], [[ref]]).score
+                    local_bleu += sc / out.size(0)
+            else:
+                for j in range(encoder_input.size(0)):  # iterate over batch
+                    ref = labels[j].tolist()
+                    cands = model.module.generate(
+                        src_tok, encoder_input[i].unsqueeze(0), src_mask[i].unsqueeze(0)
+                    )[0].tolist()
+                    ref = tgt_tok.decode(ref).replace(" ##", "")
+                    cands = tgt_tok.decode(cands).replace(" ##", "")
+                    sc = sacrebleu.corpus_bleu([cands], [[ref]]).score
+                    local_bleu += sc / out.size(0)
         local_loss /= len(test_dl)
         local_bleu /= len(test_dl)
 
@@ -76,6 +83,7 @@ def validate_model(
 
     return avg_loss, avg_bleu
 
+
 if __name__ == "__main__":
     ds_config, model_config, tr_config, eval_config, parser = get_config_and_parser()
     test_ds = retrieve_processed_dataset()["test"]
@@ -84,24 +92,26 @@ if __name__ == "__main__":
     args = parser.parse_args()
     dist.init_process_group(backend="nccl")
     local_rank, global_rank, world_size = (
-            int(os.environ["LOCAL_RANK"]),
-            int(os.environ["RANK"]),
-            int(os.environ["WORLD_SIZE"]),
-        )
+        int(os.environ["LOCAL_RANK"]),
+        int(os.environ["RANK"]),
+        int(os.environ["WORLD_SIZE"]),
+    )
     torch.cuda.set_device(local_rank)
     device = torch.device("cuda")
     test_dl = DataLoader(
-            test_ds,
-            batch_sampler=CustomDistributedSampler(get_batches_dict()["test"]),
-            collate_fn=lambda x: collate_fn(x, pad_id),
+        test_ds,
+        batch_sampler=CustomDistributedSampler(get_batches_dict()["test"]),
+        collate_fn=lambda x: collate_fn(x, pad_id),
     )
     transformer = (
-            Transformer.from_config(model_config)
-            .load_from_checkpoint(tr_config.checkpoint_path)
-            .to(device)
+        Transformer.from_config(model_config)
+        .load_from_checkpoint(tr_config.checkpoint_path)
+        .to(device)
     )
     transformer = torch.nn.parallel.DistributedDataParallel(transformer)
-    avg_loss, avg_bleu = validate_model(transformer, test_dl, device, ds_config)
+    avg_loss, avg_bleu = validate_model(
+        transformer, test_dl, device, ds_config, bleu="real"
+    )
 
     if global_rank == 0:
         print("Average loss: ", avg_loss)
