@@ -66,8 +66,8 @@ def validate_model(model, test_dl, device, ds_config, bleu="estimate"):
                     cands = tokenizer.decode(cands).replace(" ##", "")
                     sc = sacrebleu.corpus_bleu([cands], [[ref]]).score
                     local_bleu += sc / out.size(0)
-        local_loss /= len(test_dl)
-        local_bleu /= len(test_dl)
+    local_loss /= len(test_dl)
+    local_bleu /= len(test_dl)
 
     # Aggregate losses and BLEU scores across all processes
     total_loss = torch.tensor(local_loss, device=device)
