@@ -34,6 +34,7 @@ training:
   checkpoint_filename: "latest"
   checkpoint_save_filename: "checkpoint.pth"
   save_freq: 1000 # each 1000 steps
+  eval_freq: 100 # run validation every 1000 steps
   label_smoothing: 0.1
 
 eval:

@@ -106,9 +106,7 @@ Optionally, to see stats about the batches, run
 
 5. Run the eval script
 ```bash
-    torchrun --nproc_per_node 4 eval.py --config configs/distrib_wmt14.yaml --ddp
-    # or no ddp for eval
-    python eval.py --config configs/distrib_wmt14.yaml
+    torchrun --nproc_per_node 4 eval.py --config configs/distrib_wmt14.yaml
 ```
 
 This will start the training process. The script will load the dataset, the model, and the configuration file. It will train the model and save it in the `checkpoints` directory.

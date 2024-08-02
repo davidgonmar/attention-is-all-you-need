@@ -115,6 +115,7 @@ class TrainingConfig(BaseConfig):
     save_freq: float = 1.0  # once per epoch by default
     label_smoothing: float = 0.1
     tokens_per_step_per_gpu: int = 1000
+    eval_freq: int = 1 # run validation
     n_gpus: int = 1
     grad_accum_steps: int = 1
 

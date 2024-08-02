@@ -8,16 +8,18 @@ from model import Transformer
 from config import get_config_and_parser
 import torch
 import torch.nn as nn
-from config import ModelConfig, TrainingConfig
+from config import ModelConfig, TrainingConfig, DatasetConfig
 from typing import Tuple
 from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
+from datasets import DatasetDict
 import os
 from torch.distributed import init_process_group
 from tokenizer import get_tokenizer, SpecialTokens
 import time
 import wandb
 from torch.distributed.elastic.multiprocessing.errors import record
+from eval import validate_model
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -65,11 +67,12 @@ def get_padding_mask(seq: torch.Tensor, pad_token: int) -> torch.Tensor:
 
 def train_transformer(
     model: Transformer,
-    train_dataset: Dataset,
+    dsdict: DatasetDict,
     device: torch.device,
     pad_id: int,
     model_config: ModelConfig,
     training_config: TrainingConfig,
+    ds_config: DatasetConfig,
     global_rank: int = 0,
 ) -> None:
     criterion = torch.nn.CrossEntropyLoss(
@@ -80,8 +83,14 @@ def train_transformer(
 
     optimizer, scheduler = get_optim_and_scheduler(model, model_config, training_config)
     train_dl = DataLoader(
-        train_dataset,
+        dsdict["train"],
         batch_sampler=CustomDistributedSampler(get_batches_dict()["train"]),
+        collate_fn=lambda x: collate_fn(x, pad_id),
+        pin_memory=True,
+    )
+    test_dl = DataLoader(
+        dsdict["test"],
+        batch_sampler=CustomDistributedSampler(get_batches_dict()["test"]),
         collate_fn=lambda x: collate_fn(x, pad_id),
         pin_memory=True,
     )
@@ -103,6 +112,7 @@ def train_transformer(
         print("info: warmup_steps=", training_config.warmup_steps)
     scaler = torch.amp.GradScaler("cuda")
     model.train()
+    accum_loss = 0
     while True:
         for _, elem in enumerate(train_dl):
             start = time.time()
@@ -118,9 +128,10 @@ def train_transformer(
                     out.view(-1, out.size(-1)), labels.view(-1)
                 )  # flatten the output and target tensors
                 lossitem = loss.item()
+                accum_loss += lossitem
                 loss = loss / training_config.grad_accum_steps  # so grads are averaged
             scaler.scale(loss).backward()
-
+            
             # grad accum
             if (global_step + 1) % training_config.grad_accum_steps == 0:
                 if global_rank == 0:
@@ -129,33 +140,52 @@ def train_transformer(
                 scaler.update()
                 optimizer.zero_grad()
                 scheduler.step()
-
+            
             if global_rank == 0:
-                wandb.log(
-                    {
-                        "global_step": global_step,
-                        "train/loss": lossitem,
-                        "lr": scheduler.get_lr()[0],
-                    }
-                )
                 print(
-                    "global_step:",
-                    global_step,
-                    "loss:",
-                    lossitem,  # we want to see the actual loss! not the scaled one
-                    "time:",
-                    str(time.time() - start) + "s",
-                    "batch_size:",
-                    encoder_input.size(0),
-                    "src len:",
-                    encoder_input.size(1),
-                    "tgt len: ",
-                    decoder_input.size(1),
-                    "lr: ",
-                    scheduler.get_lr()[0],
+                        "global_step:",
+                        global_step,
+                        "loss:",
+                        lossitem,  # we want to see the actual loss! not the scaled one
+                        "time:",
+                        str(time.time() - start) + "s",
+                        "batch_size:",
+                        encoder_input.size(0),
+                        "src len:",
+                        encoder_input.size(1),
+                        "tgt len: ",
+                        decoder_input.size(1),
+                        "lr: ",
+                        scheduler.get_lr()[0],
                 )
+
+            if (global_step + 1) % training_config.eval_freq == 0:
+                start = time.time()
+                valid_loss, bleu = validate_model(model, test_dl, device, ds_config)
+                avg_train_loss = accum_loss / training_config.eval_freq
+                if global_rank == 0:
+                    print(
+                        "[VALIDATION FINISHED] global_step: ",
+                        global_step,
+                        "valid loss: ",
+                        valid_loss,
+                        "bleu: ",
+                        bleu,
+                        "time taken :",
+                        str(time.time() - start) + "s",
+                    )
+                    wandb.log(
+                        {
+                            "global_step": global_step,
+                            "train/loss": avg_train_loss,
+                            "eval/loss": valid_loss,
+                            "eval/bleu": bleu,
+                            "lr": scheduler.get_lr()[0],
+                        }
+                    )
+                accum_loss = 0
                 # save each `training_config.save_freq` steps
-                if (global_step % (training_config.save_freq)) == 0:
+            if ((global_step + 1) % training_config.save_freq) == 0:
                     print("Saving checkpoint... global_step:", global_step)
                     torch.save(
                         {
@@ -175,7 +205,7 @@ def train_transformer(
                                 global_step=global_step
                             )
                         ),
-                    )
+                )
             global_step += 1
             if global_step >= training_config.max_global_steps:
                 print("Training complete, global_step:", global_step)
@@ -198,7 +228,6 @@ def main():
         update=True,
     )
     dsdict = retrieve_processed_dataset()
-    train_ds = dsdict["train"]
     if not torch.cuda.is_available():
         raise ValueError("CUDA is not available")
     device = torch.device("cuda")
@@ -244,11 +273,12 @@ def main():
         )
     train_transformer(
         transformer,
-        train_ds,
+        dsdict,
         device,
         pad_id,
         model_config,
         training_config,
+        ds_config,
         global_rank,
     )
 
