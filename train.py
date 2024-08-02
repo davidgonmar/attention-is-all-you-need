@@ -185,7 +185,7 @@ def train_transformer(
                     )
                 accum_loss = 0
                 # save each `training_config.save_freq` steps
-            if ((global_step + 1) % training_config.save_freq) == 0:
+            if ((global_step + 1) % training_config.save_freq) == 0 and global_rank == 0:
                 print("Saving checkpoint... global_step:", global_step)
                 torch.save(
                     {
