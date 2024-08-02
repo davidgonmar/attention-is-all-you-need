@@ -15,7 +15,7 @@ import os
 import sacrebleu
 
 
-def validate_model(model, test_dl, device, ds_config, bleu="estimate"):
+def validate_model(model, test_dl, device, ds_config, training_config, bleu="estimate"):
     from train import get_padding_mask
 
     local_loss = 0
@@ -41,6 +41,7 @@ def validate_model(model, test_dl, device, ds_config, bleu="estimate"):
                 labels.view(-1),
                 ignore_index=tokenizer.token_to_id(SpecialTokens.PAD.value),
                 reduction="mean",
+                label_smoothing=training_config.label_smoothing
             )
             local_loss += loss.item()
 
@@ -110,7 +111,7 @@ if __name__ == "__main__":
     )
     transformer = torch.nn.parallel.DistributedDataParallel(transformer)
     avg_loss, avg_bleu = validate_model(
-        transformer, test_dl, device, ds_config, bleu="real"
+        transformer, test_dl, device, ds_config, tr_config, bleu="real"
     )
 
     if global_rank == 0:
