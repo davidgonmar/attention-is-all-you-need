@@ -161,7 +161,9 @@ def train_transformer(
 
             if (global_step + 1) % training_config.eval_freq == 0:
                 start = time.time()
-                valid_loss, bleu = validate_model(model, test_dl, device, ds_config, training_config)
+                valid_loss, bleu = validate_model(
+                    model, test_dl, device, ds_config, training_config
+                )
                 avg_train_loss = accum_loss / training_config.eval_freq
                 if global_rank == 0:
                     print(
@@ -185,7 +187,9 @@ def train_transformer(
                     )
                 accum_loss = 0
                 # save each `training_config.save_freq` steps
-            if ((global_step + 1) % training_config.save_freq) == 0 and global_rank == 0:
+            if (
+                (global_step + 1) % training_config.save_freq
+            ) == 0 and global_rank == 0:
                 print("Saving checkpoint... global_step:", global_step)
                 torch.save(
                     {

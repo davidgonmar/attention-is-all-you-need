@@ -401,7 +401,10 @@ class Transformer(nn.Module):
             d_model=d_model, seq_len=3000, dropout=dropout
         )
         self.linear = nn.Linear(d_model, vocab_size)
-        self.dropout = nn.Dropout(dropout)
+
+        # weight sharing, as mentioned
+        self.input_embedder.embedding.weight = self.linear.weight
+        self.output_embedder.embedding.weight = self.linear.weight
 
     def forward(
         self,
@@ -412,14 +415,11 @@ class Transformer(nn.Module):
     ) -> Tensor:
         src = self.input_embedder(src)
         src = self.positional_encoder(src)
-        src = self.dropout(src)
 
         encoder_output = self.encoder(src, src_pad_attn_mask)
 
         tgt = self.output_embedder(tgt)
         tgt = self.positional_decoder(tgt)
-        tgt = self.dropout(tgt)
-
         decoder_output = self.decoder(
             encoder_output, tgt, src_pad_attn_mask, tgt_pad_attn_mask
         )
@@ -438,7 +438,6 @@ class Transformer(nn.Module):
     ) -> torch.Tensor:
         src = self.input_embedder(src)
         src = self.positional_encoder(src)
-        src = self.dropout(src)
 
         encoder_output = self.encoder(src, src_pad_attn_mask)
 
@@ -456,8 +455,6 @@ class Transformer(nn.Module):
         for _ in range(max_length):
             tgt_embedded = self.output_embedder(tgt)
             tgt_embedded = self.positional_decoder(tgt_embedded)
-            tgt_embedded = self.dropout(tgt_embedded)
-
             decoder_output = self.decoder(
                 encoder_output, tgt_embedded, src_pad_attn_mask, tgt_pad_attn_mask
             )

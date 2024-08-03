@@ -41,7 +41,7 @@ def validate_model(model, test_dl, device, ds_config, training_config, bleu="est
                 labels.view(-1),
                 ignore_index=tokenizer.token_to_id(SpecialTokens.PAD.value),
                 reduction="mean",
-                label_smoothing=training_config.label_smoothing
+                label_smoothing=training_config.label_smoothing,
             )
             local_loss += loss.item()
 
