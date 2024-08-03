@@ -88,8 +88,8 @@ def validate_model(model, test_dl, device, ds_config, training_config, bleu="est
 if __name__ == "__main__":
     ds_config, model_config, tr_config, eval_config, parser = get_config_and_parser()
     test_ds = retrieve_processed_dataset()["test"]
-    tokenizer_tgt = get_tokenizer(ds_config.tgt_lang)
-    pad_id = tokenizer_tgt.token_to_id(SpecialTokens.PAD.value)
+    tokenizer = get_tokenizer()
+    pad_id = tokenizer.token_to_id(SpecialTokens.PAD.value)
     args = parser.parse_args()
     dist.init_process_group(backend="nccl")
     local_rank, global_rank, world_size = (
