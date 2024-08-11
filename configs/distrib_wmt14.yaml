@@ -38,8 +38,3 @@ training:
   save_freq: 1000 # each 1000 steps
   eval_freq: 100 # run validation every 100 steps
   label_smoothing: 0.1
-
-eval:
-  batch_size: 256
-  checkpoint_dir: "checkpoints/distrib_wmt14"
-  checkpoint_filename: "latest"

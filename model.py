@@ -12,11 +12,6 @@ USE_TORCH_SDPA = True
 
 class PositionWiseFeedForward(nn.Module):
     def __init__(self, d_model: int, inner_dim: int):
-        """
-        Args:
-            d_model: dimensionality of the input and output
-            inner_dim: dimensionality of the inner layer, also called d_ff in the paper
-        """
         super().__init__()
         self.fc1 = nn.Linear(d_model, inner_dim)
         self.fc2 = nn.Linear(inner_dim, d_model)
@@ -459,8 +454,6 @@ class Transformer(nn.Module):
         completed = torch.zeros((batch_size, beam_width), dtype=torch.bool, device=src.device)
 
         for _ in range(max_length):
-            all_candidates = []
-
             # Expand sequences for the decoder
             tgt_embedded = self.output_embedder(sequences.view(batch_size * beam_width, -1))
             tgt_embedded = self.positional_decoder(tgt_embedded)

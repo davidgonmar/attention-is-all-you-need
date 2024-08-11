@@ -273,7 +273,7 @@ def main():
     torch.cuda.set_device(local_rank)
     ###############################################
 
-    ds_config, model_config, training_config, _, parser = get_config_and_parser(
+    ds_config, model_config, training_config, parser = get_config_and_parser(
         update=True,
     )
     dsdict = retrieve_processed_dataset()

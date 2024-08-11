@@ -26,7 +26,7 @@ def configs_from_yaml(
     if config["training"]["checkpoint_filename"] == "dont_use":
         config["training"]["checkpoint_filename"] = None
 
-    return config["dataset"], config["model"], config["training"], config["eval"]
+    return config["dataset"], config["model"], config["training"]
 
 
 def _get_latest_checkpoint_path(base_path: str) -> Optional[Path]:
@@ -128,28 +128,10 @@ class TrainingConfig(BaseConfig):
         )
 
 
-@dataclass
-class EvalConfig(BaseConfig):
-    checkpoint_dir: Path = Path("checkpoints")
-    checkpoint_filename: Optional[str] = None
-    batch_size: int = 12
-
-    @property
-    def checkpoint_path(self) -> Path:
-        self.checkpoint_dir = Path(self.checkpoint_dir)
-        return (
-            self.checkpoint_dir / self.checkpoint_filename
-            if self.checkpoint_filename is not None
-            else None
-        )
-
-
 def get_config_no_parser(config_path: Optional[Path] = None):
     ds_config = DatasetConfig()
     model_config = ModelConfig()
     training_config = TrainingConfig()
-    eval_config = EvalConfig()
-
     if config_path is not None:
         (
             ds_config_dict,
@@ -160,14 +142,13 @@ def get_config_no_parser(config_path: Optional[Path] = None):
         ds_config.load_from_dict(ds_config_dict)
         model_config.load_from_dict(model_config_dict)
         training_config.load_from_dict(training_config_dict)
-        eval_config.load_from_dict(eval_config_dict)
-
-    return ds_config, model_config, training_config, eval_config
+    
+    return ds_config, model_config, training_config
 
 
 def get_config_and_parser(
     existing_parser: Optional[ArgumentParser] = None, update: bool = True, extra_args=[]
-) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, EvalConfig, ArgumentParser]:
+) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, ArgumentParser]:
     parser = existing_parser or ArgumentParser(conflict_handler="resolve")
     parser.add_argument(
         "--config", type=Path, default=None
@@ -177,11 +158,9 @@ def get_config_and_parser(
     ds_config = DatasetConfig()
     model_config = ModelConfig()
     training_config = TrainingConfig()
-    eval_config = EvalConfig()
     ds_config.add_to_arg_parser(parser)
     model_config.add_to_arg_parser(parser)
     training_config.add_to_arg_parser(parser)
-    eval_config.add_to_arg_parser(parser)
 
     args = parser.parse_args()
 
@@ -197,12 +176,10 @@ def get_config_and_parser(
         ds_config.load_from_dict(ds_config_dict)
         model_config.load_from_dict(model_config_dict)
         training_config.load_from_dict(training_config_dict)
-        eval_config.load_from_dict(eval_config_dict)
 
     # now update configs to get overrides from command line
     ds_config.update_from_arg_parser(args)
     model_config.update_from_arg_parser(args)
     training_config.update_from_arg_parser(args)
-    eval_config.update_from_arg_parser(args)
 
-    return ds_config, model_config, training_config, eval_config, parser
+    return ds_config, model_config, training_config, parser

@@ -57,7 +57,6 @@ if __name__ == "__main__":
         ds_config,
         model_config,
         training_config,
-        eval_config,
         parser,
     ) = get_config_and_parser()
     # We only want the 'train' split to train the tokenizer

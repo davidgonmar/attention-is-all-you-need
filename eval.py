@@ -80,7 +80,7 @@ def validate_model(model, test_dl, device, ds_config, training_config):
 if __name__ == "__main__":
     @record
     def main():
-        ds_config, model_config, tr_config, eval_config, parser = get_config_and_parser()
+        ds_config, model_config, tr_config, parser = get_config_and_parser()
         test_ds = retrieve_processed_dataset()["test"]
         tokenizer = get_tokenizer()
         pad_id = tokenizer.token_to_id(SpecialTokens.PAD.value)
