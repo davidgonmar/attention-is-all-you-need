@@ -19,7 +19,6 @@ from tokenizer import get_tokenizer, SpecialTokens
 import time
 import wandb
 from torch.distributed.elastic.multiprocessing.errors import record
-from eval import validate_model
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -64,6 +63,52 @@ def get_padding_mask(seq: torch.Tensor, pad_token: int) -> torch.Tensor:
     """
     return (seq != pad_token).unsqueeze(1).unsqueeze(2)
 
+def validate_model(
+    model: nn.Module,
+    test_dl: DataLoader,
+    device: torch.device,
+    ds_config: DatasetConfig,
+    training_config: TrainingConfig,
+    pad_id: int,
+) -> float:
+    model.eval()
+    criterion = torch.nn.CrossEntropyLoss(ignore_index=pad_id, reduction="mean")
+    total_loss = 0
+    with torch.no_grad():
+        for _, elem in enumerate(test_dl):
+            encoder_input = elem["src"].to(device)
+            decoder_input = elem["tgt_shifted"].to(device)
+            labels = elem["tgt_labels"].to(device)
+            src_mask = get_padding_mask(encoder_input, pad_id)
+            tgt_mask = get_padding_mask(decoder_input, pad_id)
+            out = model(encoder_input, decoder_input, src_mask, tgt_mask)
+            loss = criterion(out.view(-1, out.size(-1)), labels.view(-1))
+            total_loss += loss.item()
+    return total_loss / len(test_dl)
+
+def save_checkpoint(
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LambdaLR,
+    model_config: ModelConfig,
+    global_step: int,
+    checkpoint_dir: str,
+    checkpoint_save_filename: str,
+) -> None:
+    torch.save(
+        {
+            "model": (
+                model.module.state_dict()
+                if hasattr(model, "module")
+                else model.state_dict()
+            ),  # save the model depending on whether it is wrapped in a DistributedDataParallel or something
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "model_config": model_config,  # does not occupy much space, but useful so we do not accidentally load a different model config
+            "global_step": global_step,
+        },
+        (checkpoint_dir / checkpoint_save_filename.format(global_step=global_step)),
+    )
 
 def train_transformer(
     model: Transformer,
@@ -161,8 +206,8 @@ def train_transformer(
 
             if (global_step + 1) % training_config.eval_freq == 0:
                 start = time.time()
-                valid_loss, bleu = validate_model(
-                    model, test_dl, device, ds_config, training_config
+                valid_loss = validate_model(
+                    model, test_dl, device, ds_config, training_config, pad_id
                 )
                 model.train()
                 avg_train_loss = accum_loss / training_config.eval_freq
@@ -172,8 +217,6 @@ def train_transformer(
                         global_step,
                         "valid loss: ",
                         valid_loss,
-                        "bleu: ",
-                        bleu,
                         "time taken :",
                         str(time.time() - start) + "s",
                     )
@@ -182,7 +225,6 @@ def train_transformer(
                             "global_step": global_step,
                             "train/loss": avg_train_loss,
                             "eval/loss": valid_loss,
-                            "eval/bleu": bleu,
                             "lr": scheduler.get_lr()[0],
                         }
                     )
@@ -192,30 +234,32 @@ def train_transformer(
                 (global_step + 1) % training_config.save_freq
             ) == 0 and global_rank == 0:
                 print("Saving checkpoint... global_step:", global_step)
-                torch.save(
-                    {
-                        "model": (
-                            model.module.state_dict()
-                            if hasattr(model, "module")
-                            else model.state_dict()
-                        ),  # save the model depending on whether it is wrapped in a DataParallel or something
-                        "optimizer": optimizer.state_dict(),
-                        "scheduler": scheduler.state_dict(),
-                        "model_config": model_config,  # does not occupy much space, but useful so we do not accidentally load a different model config
-                        "global_step": global_step,
-                    },
-                    (
-                        training_config.checkpoint_dir
-                        / training_config.checkpoint_save_filename.format(
-                            global_step=global_step
-                        )
-                    ),
+                save_checkpoint(
+                    model,
+                    optimizer,
+                    scheduler,
+                    model_config,
+                    global_step,
+                    training_config.checkpoint_dir,
+                    training_config.checkpoint_save_filename,
                 )
             global_step += 1
             if global_step >= training_config.max_global_steps:
                 print("Training complete, global_step:", global_step)
                 return
-
+    
+    # final save
+    if global_rank == 0:
+        print("Saving final checkpoint... global_step:", global_step)
+        save_checkpoint(
+            model,
+            optimizer,
+            scheduler,
+            model_config,
+            global_step,
+            training_config.checkpoint_dir,
+            training_config.checkpoint_save_filename,
+        )
 
 @record
 def main():

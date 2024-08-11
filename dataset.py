@@ -8,7 +8,7 @@ from datasets import (
 from config import DatasetConfig
 import torch
 
-from typing import Iterator
+from typing import Iterator, Sequence
 
 import torch.distributed as dist
 from torch.utils.data import Sampler
@@ -79,16 +79,15 @@ def collate_fn(
 # they mention that each batch has X (in the paper 25k) src and X tgt tokens
 # what we'll do is keep sampling until we have either X src or X tgt tokens
 class CustomDistributedSampler(Sampler):
-    def __init__(self, batches_dict: dict) -> None:
-        self.world_size = dist.get_world_size()
-        self.rank = dist.get_rank()
+    def __init__(self, batches_dict: dict, ranks: int | Sequence[int] = None) -> None:
+        self.world_size = 1 if not dist.is_initialized() else dist.get_world_size()
+        self.ranks = dist.get_rank() if not ranks else ranks
+        self.ranks = (self.ranks, ) if not isinstance(self.ranks, (list, tuple)) else self.ranks
         self.batches_dict = batches_dict
-
-        # assert that batches_dict n of gpus == world_size
         assert (
-            len(batches_dict) == self.world_size
-        ), f"Number of gpus in batches_dict ({len(batches_dict)}) is different from world_size ({self.world_size})"
-
+            (len(batches_dict) / len(self.ranks)) == self.world_size
+        ), f"Number of gpus in batches_dict ({len(batches_dict)}) is smaller than world_size ({self.world_size})"
+        self._len = None
     def __iter__(self) -> Iterator:
         # batches_dict is of the form
         # {
@@ -96,14 +95,18 @@ class CustomDistributedSampler(Sampler):
         #     "gpu_1": [[...idxs...], [...idxs...], ...],
         #     ...
         # }
-        idxs = self.batches_dict[
-            f"gpu_{self.rank}"
-        ]  # [[...idxs...], [...idxs...], ...]
+        idxs = sum([self.batches_dict[
+            f"gpu_{r}"
+        ] for r in self.ranks], start=[])
         randomperm = torch.randperm(len(idxs))
         return iter([idxs[i] for i in randomperm])
 
     def __len__(self) -> int:
-        return len(self.batches_dict[f"gpu_{self.rank}"])
+        if self._len is None:
+            self._len = len(sum([self.batches_dict[
+            f"gpu_{r}"
+            ] for r in self.ranks], start=[]))
+        return self._len
 
 
 def preprocess(
