@@ -63,6 +63,7 @@ def get_padding_mask(seq: torch.Tensor, pad_token: int) -> torch.Tensor:
     """
     return (seq != pad_token).unsqueeze(1).unsqueeze(2)
 
+
 def validate_model(
     model: nn.Module,
     test_dl: DataLoader,
@@ -85,6 +86,7 @@ def validate_model(
             loss = criterion(out.view(-1, out.size(-1)), labels.view(-1))
             total_loss += loss.item()
     return total_loss / len(test_dl)
+
 
 def save_checkpoint(
     model: nn.Module,
@@ -109,6 +111,7 @@ def save_checkpoint(
         },
         (checkpoint_dir / checkpoint_save_filename.format(global_step=global_step)),
     )
+
 
 def train_transformer(
     model: Transformer,
@@ -167,7 +170,7 @@ def train_transformer(
             src_mask = get_padding_mask(encoder_input, pad_id)
             tgt_mask = get_padding_mask(decoder_input, pad_id)
             lossitem = None
-            with torch.autocast("cuda", enabled=False):
+            with torch.autocast("cuda", enabled=True):
                 out = model(encoder_input, decoder_input, src_mask, tgt_mask)
                 loss = criterion(
                     out.view(-1, out.size(-1)), labels.view(-1)
@@ -247,7 +250,7 @@ def train_transformer(
             if global_step >= training_config.max_global_steps:
                 print("Training complete, global_step:", global_step)
                 return
-    
+
     # final save
     if global_rank == 0:
         print("Saving final checkpoint... global_step:", global_step)
@@ -260,6 +263,7 @@ def train_transformer(
             training_config.checkpoint_dir,
             training_config.checkpoint_save_filename,
         )
+
 
 @record
 def main():

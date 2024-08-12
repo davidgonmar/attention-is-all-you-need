@@ -38,12 +38,16 @@ model:
   dropout: 0.1
   n_encoder_layers: 6
   n_decoder_layers: 6
-  vocab_size: 32000
+  vocab_size: 37000
 
 training:
-  max_global_steps: 100000
-  # original -> 25k tokens per batch -> 25k / 4 = 6250 tokens per gpu
-  tokens_per_step_per_gpu: 6250
+  # original paper -> 100k steps, 25k src and 25k tgt tokens each step, 8 GPUs
+  # here, we do 200k steps with 12.5k src/tgt tokens per step. One gradient update each two steps -> 100k total updates
+  # 12.5 k tokens per step -> 3125 per gpu
+  # so, effectively, we are kind of replicating their setup but with 4 GPUs through gradient accum
+  max_global_steps: 200000
+  tokens_per_step_per_gpu: 3125
+  grad_accum_steps: 2
   n_gpus: 4
   lr: 1
   use_scheduler: true
@@ -55,16 +59,11 @@ training:
   checkpoint_filename: "latest"
   checkpoint_save_filename: "checkpoint.pth"
   save_freq: 1000 # each 1000 steps
-  eval_freq: 100
+  eval_freq: 100 # run validation every 100 steps
   label_smoothing: 0.1
-
-eval:
-  batch_size: 128
-  checkpoint_dir: "checkpoints/distrib_wmt14"
-  checkpoint_filename: "latest"
 ```
 
-### Steps for training
+### Steps
 First, ensure that there is a directory named `checkpoints/config_name` located at the root of the project.
 To prepare everything for training, follow these steps (in order) (you can use any configuration file. Just make sure n_gpus matches the torchrun command):
 
@@ -104,7 +103,7 @@ Optionally, to see stats about the batches, run
     torchrun --nproc_per_node 4 train.py --config configs/distrib_wmt14.yaml
 ```
 
-5. Run the eval script
+5. Run the eval script (will only use one GPU). Will report cross entropy loss and BLEU score.
 ```bash
     python eval.py --config configs/distrib_wmt14.yaml
 ```
@@ -112,7 +111,9 @@ Optionally, to see stats about the batches, run
 This will start the training process. The script will load the dataset, the model, and the configuration file. It will train the model and save it in the `checkpoints` directory.
 It will save the model every `save_freq` steps. It will save the optimizer state and other stuff needed to resume training. It is not ideal to resume training mid-epoch.
 
-## Batching
+## Notes
+
+### Batching
 
 The original paper mentions that each batch should have `x` source and `x` target tokens. To be efficient with batch padding, it also mentions that sentences are grouped by approximate token length. In the paper, `x` = 25k.
 
@@ -122,6 +123,14 @@ Then, we have the batching process. For a given number of gpus and desired `x`, 
 At runtime, the order in which the batches are processed is shuffled, but the batches themselves remain constant.
 
 Each batch is then padded to the maximum length of the batch.
+
+### Evaluating the model
+The evaluation script will load the latest checkpoint and run the evaluation process. It will report the cross-entropy loss and the BLEU score.
+In order to evaluate the model, a setup similar to the one in the paper is used.
+
+### Tokenizing
+I used the same tokenizer as the one used in the original paper, but with a WordPiece model instead of a Byte-Pair Encoding model.
+
 
 ## Citations
 

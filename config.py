@@ -9,6 +9,9 @@ import yaml
 def configs_from_yaml(
     yaml_path: Path,
 ) -> Tuple[dict, dict, dict]:
+    """
+    Load the dataset, model, and training configurations from a yaml file.
+    """
     with open(yaml_path, "r") as f:
         config = yaml.safe_load(f)
 
@@ -78,6 +81,7 @@ class BaseConfig:
         return {k: v for k, v in self.__dict__.items()}
 
 
+# All the configs here are placeholder values, will be loaded from a yaml file
 @dataclass
 class DatasetConfig(BaseConfig):
     ds_name: str = "wmt14"
@@ -128,27 +132,12 @@ class TrainingConfig(BaseConfig):
         )
 
 
-def get_config_no_parser(config_path: Optional[Path] = None):
-    ds_config = DatasetConfig()
-    model_config = ModelConfig()
-    training_config = TrainingConfig()
-    if config_path is not None:
-        (
-            ds_config_dict,
-            model_config_dict,
-            training_config_dict,
-            eval_config_dict,
-        ) = configs_from_yaml(config_path)
-        ds_config.load_from_dict(ds_config_dict)
-        model_config.load_from_dict(model_config_dict)
-        training_config.load_from_dict(training_config_dict)
-    
-    return ds_config, model_config, training_config
-
-
 def get_config_and_parser(
     existing_parser: Optional[ArgumentParser] = None, update: bool = True, extra_args=[]
 ) -> Tuple[DatasetConfig, ModelConfig, TrainingConfig, ArgumentParser]:
+    """
+    Get the dataset, model, and training configurations from command line arguments.
+    """
     parser = existing_parser or ArgumentParser(conflict_handler="resolve")
     parser.add_argument(
         "--config", type=Path, default=None

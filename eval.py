@@ -21,6 +21,7 @@ def pad_sequences(sequences, pad_token_id, max_len):
     ]
     return padded_sequences
 
+
 def validate_model(model, test_dl, device, ds_config, training_config):
     from train import get_padding_mask
 
@@ -37,37 +38,38 @@ def validate_model(model, test_dl, device, ds_config, training_config):
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
 
-            src_mask = get_padding_mask(
-                encoder_input, pad_id
-            ).to(device)
-            tgt_mask = get_padding_mask(
-                decoder_input, pad_id
-            ).to(device)
-            out = model(encoder_input, decoder_input, src_mask, tgt_mask)
-            loss = torch.nn.functional.cross_entropy(
-                out.view(-1, out.shape[-1]),
-                labels.view(-1),
-                ignore_index=tokenizer.token_to_id(SpecialTokens.PAD.value),
-                reduction="mean",
-            )
-            local_loss += loss.item()
+            src_mask = get_padding_mask(encoder_input, pad_id).to(device)
+            tgt_mask = get_padding_mask(decoder_input, pad_id).to(device)
 
-            for j in range(encoder_input.size(0)):  # iterate over batch
-                ref = labels[j].tolist()
-                cand = model.generate(
-                    tokenizer,
-                    encoder_input[j].unsqueeze(0),
-                    src_mask[j].unsqueeze(0),
-                )[0].tolist()
-                cands.append(cand)
-                refs.append(ref)
+            with torch.autocast("cuda", enabled=True):
+                out = model(encoder_input, decoder_input, src_mask, tgt_mask)
+                loss = torch.nn.functional.cross_entropy(
+                    out.view(-1, out.shape[-1]),
+                    labels.view(-1),
+                    ignore_index=tokenizer.token_to_id(SpecialTokens.PAD.value),
+                    reduction="mean",
+                )
+                local_loss += loss.item()
+
+                for j in range(encoder_input.size(0)):  # iterate over batch
+                    ref = labels[j].tolist()
+                    cand = model.generate(
+                        tokenizer,
+                        encoder_input[j],
+                        src_mask[j],
+                    ).tolist()
+                    cands.append(cand)
+                    refs.append(ref)
+
         decoded_refs = tokenizer.decode_batch(refs)
         decoded_cands = tokenizer.decode_batch(cands)
         bleu = sacrebleu.corpus_bleu(decoded_cands, [decoded_refs]).score
 
         return bleu, local_loss / len(test_dl)
 
+
 if __name__ == "__main__":
+
     @record
     def main():
         ds_config, model_config, tr_config, parser = get_config_and_parser()
@@ -77,7 +79,9 @@ if __name__ == "__main__":
         device = torch.device("cuda")
         test_dl = DataLoader(
             test_ds,
-            batch_sampler=CustomDistributedSampler(get_batches_dict()["test"], ranks=list(range(tr_config.n_gpus))), # make aa single gpu use the dataset split for all gpus
+            batch_sampler=CustomDistributedSampler(
+                get_batches_dict()["test"], ranks=list(range(tr_config.n_gpus))
+            ),  # make aa single gpu use the dataset split for all gpus
             collate_fn=lambda x: collate_fn(x, pad_id),
         )
         transformer = (
@@ -91,4 +95,5 @@ if __name__ == "__main__":
 
         print("avg bleu: ", avg_bleu)
         print("avg loss: ", avg_loss)
+
     main()
