@@ -1,8 +1,9 @@
 from pathlib import Path
 from tokenizers import Tokenizer
 from datasets import Dataset
-from tokenizers.models import WordPiece
+from tokenizers.models import WordPiece as WordPieceModel
 from tokenizers.trainers import WordPieceTrainer
+from tokenizers.decoders import WordPiece as WordPieceDecoder
 from tokenizers.pre_tokenizers import Whitespace
 from enum import Enum
 from config import get_config_and_parser
@@ -31,7 +32,7 @@ def train_tokenizer(ds: Dataset, vocab_size: int):
         raise ValueError(
             "Tokenizer already exists. If you still want to train a new one, delete the existing one first"
         )
-    tok = Tokenizer(WordPiece(unk_token=SpecialTokens.UNK.value))
+    tok = Tokenizer(WordPieceModel(unk_token=SpecialTokens.UNK.value))
     tok.pre_tokenizer = Whitespace()
     trainer = WordPieceTrainer(
         special_tokens=[t.value for t in SpecialTokens],
@@ -42,11 +43,12 @@ def train_tokenizer(ds: Dataset, vocab_size: int):
 
     def iter_ds(ds: Dataset):
         for ex in ds:
-            # one sentence each time!
+            # one sentence in each lang each time!
             for lang in langs:
                 yield ex["translation"][lang]
 
     tok.train_from_iterator(iter_ds(ds), trainer)
+    tok.decoder = WordPieceDecoder()
     tok.save(str(cached_path))
 
 

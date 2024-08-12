@@ -37,7 +37,6 @@ class PositionalEncoding(nn.Module):
         self.d_model = d_model
         self.seq_len = seq_len
         self.dropout = nn.Dropout(dropout)
-        # Initial encoding on CPU or default device
         self.create_positional_encoding(seq_len, device="cpu")
 
     def create_positional_encoding(self, seq_len: int, device: torch.device) -> None:
@@ -429,13 +428,15 @@ class Transformer(nn.Module):
         tokenizer,
         src: torch.Tensor,
         src_pad_attn_mask: torch.Tensor = None,
-        max_length: int = 500,
+        max_length: int = None,
         temperature: float = 1.0,
-        beam_width: int = 3,
-        length_penalty: float = 1.0,
+        beam_width: int = 4,
+        length_penalty: float = 0.6,
     ) -> torch.Tensor:
         batch_size = src.size(0)
-
+        # if max length is none, max_length = src.size(1) + 50
+        if max_length is None:
+            max_length = src.size(1) + 50
         src = self.input_embedder(src)
         src = self.positional_encoder(src)
         src_pad_attn_mask = (

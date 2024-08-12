@@ -167,7 +167,7 @@ def train_transformer(
             src_mask = get_padding_mask(encoder_input, pad_id)
             tgt_mask = get_padding_mask(decoder_input, pad_id)
             lossitem = None
-            with torch.autocast("cuda", enabled=True):
+            with torch.autocast("cuda", enabled=False):
                 out = model(encoder_input, decoder_input, src_mask, tgt_mask)
                 loss = criterion(
                     out.view(-1, out.size(-1)), labels.view(-1)

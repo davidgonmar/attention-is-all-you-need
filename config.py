@@ -171,7 +171,6 @@ def get_config_and_parser(
             ds_config_dict,
             model_config_dict,
             training_config_dict,
-            eval_config_dict,
         ) = configs_from_yaml(args.config)
         ds_config.load_from_dict(ds_config_dict)
         model_config.load_from_dict(model_config_dict)

@@ -13,6 +13,7 @@ import sacrebleu
 from torch.distributed.elastic.multiprocessing.errors import record
 from tqdm import tqdm
 
+
 def pad_sequences(sequences, pad_token_id, max_len):
     """Pads a list of sequences to the same length."""
     padded_sequences = [
@@ -60,21 +61,10 @@ def validate_model(model, test_dl, device, ds_config, training_config):
                 )[0].tolist()
                 cands.append(cand)
                 refs.append(ref)
-            
-            """cand = model.generate(
-                tokenizer,
-                encoder_input,
-                src_mask
-            )
-            for i in range(cand.shape[0]):
-                cands.append(cand[i])
-                refs.append(labels[i])"""
         decoded_refs = tokenizer.decode_batch(refs)
         decoded_cands = tokenizer.decode_batch(cands)
+        bleu = sacrebleu.corpus_bleu(decoded_cands, [decoded_refs]).score
 
-        decoded_refs = [[dec.replace(" ##", "")] for dec in decoded_refs]
-        decoded_cands = [ca.replace(" ##", "") for ca in decoded_cands]
-        bleu = sacrebleu.corpus_bleu(decoded_cands, decoded_refs).score
         return bleu, local_loss / len(test_dl)
 
 if __name__ == "__main__":
