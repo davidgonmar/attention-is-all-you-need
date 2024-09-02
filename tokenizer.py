@@ -1,9 +1,9 @@
 from pathlib import Path
 from tokenizers import Tokenizer
 from datasets import Dataset
-from tokenizers.models import WordPiece as WordPieceModel
-from tokenizers.trainers import WordPieceTrainer
-from tokenizers.decoders import WordPiece as WordPieceDecoder
+from tokenizers.models import WordPiece as WordPieceModel, BPE as BPEModel
+from tokenizers.trainers import WordPieceTrainer, BpeTrainer
+from tokenizers.decoders import WordPiece as WordPieceDecoder, BPEDecoder
 from tokenizers.pre_tokenizers import Whitespace
 from enum import Enum
 from config import get_config_and_parser

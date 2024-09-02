@@ -23,24 +23,18 @@ def pad_sequences(sequences, pad_token_id, max_len):
 
 
 def validate_model(model, test_dl, device, ds_config, training_config):
-    from train import get_padding_mask
-
     local_loss = 0
     with torch.no_grad():
         model.eval()
         cands = []
         refs = []
         tokenizer = get_tokenizer()
-        pad_id = tokenizer.token_to_id(SpecialTokens.PAD.value)
-
         for i, elem in enumerate(tqdm(test_dl, desc="Validation", unit="batch")):
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
-
-            src_mask = get_padding_mask(encoder_input, pad_id).to(device)
-            tgt_mask = get_padding_mask(decoder_input, pad_id).to(device)
-
+            src_mask = elem["src_mask"].to(device)
+            tgt_mask = elem["tgt_mask"].to(device)
             with torch.autocast("cuda", enabled=True):
                 out = model(encoder_input, decoder_input, src_mask, tgt_mask)
                 loss = torch.nn.functional.cross_entropy(

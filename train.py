@@ -50,20 +50,6 @@ def get_optim_and_scheduler(
     return optimizer, scheduler
 
 
-def get_padding_mask(seq: torch.Tensor, pad_token: int) -> torch.Tensor:
-    """
-    Returns a mask tensor representing which elements are padding tokens
-
-    Args:
-        seq: tensor of shape (batch_size, seq_len)
-        pad_token: token representing padding
-
-    Returns:
-        mask tensor of shape (batch_size, 1, 1, seq_len)
-    """
-    return (seq != pad_token).unsqueeze(1).unsqueeze(2)
-
-
 def validate_model(
     model: nn.Module,
     test_dl: DataLoader,
@@ -80,8 +66,8 @@ def validate_model(
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
-            src_mask = get_padding_mask(encoder_input, pad_id)
-            tgt_mask = get_padding_mask(decoder_input, pad_id)
+            src_mask = elem["src_mask"].to(device)
+            tgt_mask = elem["tgt_mask"].to(device)
             out = model(encoder_input, decoder_input, src_mask, tgt_mask)
             loss = criterion(out.view(-1, out.size(-1)), labels.view(-1))
             total_loss += loss.item()
@@ -167,8 +153,8 @@ def train_transformer(
             encoder_input = elem["src"].to(device)
             decoder_input = elem["tgt_shifted"].to(device)
             labels = elem["tgt_labels"].to(device)
-            src_mask = get_padding_mask(encoder_input, pad_id)
-            tgt_mask = get_padding_mask(decoder_input, pad_id)
+            src_mask = elem["src_mask"].to(device)
+            tgt_mask = elem["tgt_mask"].to(device)
             lossitem = None
             with torch.autocast("cuda", enabled=True):
                 out = model(encoder_input, decoder_input, src_mask, tgt_mask)

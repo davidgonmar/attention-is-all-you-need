@@ -57,21 +57,39 @@ def collate_fn(
         src = [torch.tensor(item["src"]) for item in batch]
         tgt_shifted = [torch.tensor(item["tgt_shifted"]) for item in batch]
         tgt_labels = [torch.tensor(item["tgt_labels"]) for item in batch]
+        src_masks = [torch.tensor(item["src_mask"])[:, None, None] for item in batch]
+        tgt_masks = [torch.tensor(item["tgt_mask"])[:, None, None] for item in batch]
 
         src_padded = torch.nn.utils.rnn.pad_sequence(
             src, batch_first=True, padding_value=pad_idx
         )
-        bs, slmax = src_padded.shape
         tgt_shifted_padded = torch.nn.utils.rnn.pad_sequence(
             tgt_shifted, batch_first=True, padding_value=pad_idx
         )
         tgt_labels_padded = torch.nn.utils.rnn.pad_sequence(
             tgt_labels, batch_first=True, padding_value=pad_idx
         )
+        src_masks = torch.nn.utils.rnn.pad_sequence(
+            src_masks,
+            batch_first=True,
+            padding_value=0,  # 0 is the padding value for the mask
+        ).permute(
+            0, 2, 3, 1
+        )  # [bs, 1, 1, seq_len_max]
+        tgt_masks = torch.nn.utils.rnn.pad_sequence(
+            tgt_masks,
+            batch_first=True,
+            padding_value=0,  # 0 is the padding value for the mask
+        ).permute(
+            0, 2, 3, 1
+        )  # [bs, 1, 1, seq_len_max]
+
     return {
         "src": src_padded,
         "tgt_shifted": tgt_shifted_padded,
         "tgt_labels": tgt_labels_padded,
+        "src_mask": src_masks,
+        "tgt_mask": tgt_masks,
     }
 
 
@@ -126,16 +144,23 @@ def preprocess(
         # tgt_shifted = decoder input
         # tgt_labels = expected (decoder) output
         BOS, EOS = SpecialTokens.BOS.value, SpecialTokens.EOS.value
-        src = tokenizer.encode(BOS + item["translation"][ds_config.src_lang] + EOS).ids
-        tgt = tokenizer.encode(BOS + item["translation"][ds_config.tgt_lang] + EOS).ids
-        tgt_shifted = tgt[:-1]
-        tgt_labels = tgt[1:]
-        combined_length = len(src) + len(tgt)
+        src = tokenizer.encode(BOS + item["translation"][ds_config.src_lang] + EOS)
+        tgt = tokenizer.encode(BOS + item["translation"][ds_config.tgt_lang] + EOS)
+
+        tgt_shifted = tgt.ids[:-1]
+        tgt_labels = tgt.ids[1:]
+        combined_length = len(src.ids) + len(tgt.ids)
+        src_mask = src.attention_mask
+        tgt_mask = tgt.attention_mask
 
         return {
-            "src": src,
+            "src": src.ids,
             "tgt_shifted": tgt_shifted,
             "tgt_labels": tgt_labels,
+            "src_mask": src_mask,
+            "tgt_mask": tgt_mask[
+                :-1
+            ],  # tgt_mask is used as decoder_input (shifted tgt)
             "combined_length": combined_length,
         }
 
@@ -164,7 +189,7 @@ def preprocess(
     test_ds = test_ds.sort("combined_length")
 
     # 4. We don't want the combined_length attribute anymore!
-    colnames = ["src", "tgt_labels", "tgt_shifted"]
+    colnames = ["src", "tgt_labels", "tgt_shifted", "src_mask", "tgt_mask"]
     train_ds = train_ds.select_columns(colnames)
     test_ds = test_ds.select_columns(colnames)
 
